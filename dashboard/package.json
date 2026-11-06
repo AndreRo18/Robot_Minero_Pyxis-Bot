@@ -1,0 +1,12 @@
+{
+  "name": "robot-minero-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Landing, dashboard y API del robot minero (Vercel + Upstash Redis)",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "dev": "node dev-server.mjs",
+    "simulador": "node tools/simulador-robot.mjs",
+    "test": "node tools/test-api.mjs"
+  }
+}
