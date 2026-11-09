@@ -102,8 +102,30 @@ function ponerModo(m, enviar=true){
   $("controles").classList.toggle("es-auto",auto);
   $("fsMando").disabled=auto||SOLO_LECTURA; $("fsPinza").disabled=auto||SOLO_LECTURA; $("fsBrazo").disabled=auto||SOLO_LECTURA;
   if(auto) detener();
+  // Centro de mando: en automático solo se muestra "Ambiente y energía"
+  $("avisoCentro").hidden=!auto;
+  mostrarPanel(auto ? "pAmbiente" : panelManual, false);
   if(enviar){ estado.cambioModo=Date.now(); pub("modo",{data:m}); }
 }
+
+/* ========= CENTRO DE MANDO (pestañas) =========
+   Manual: Conducción · Brazo y pinza · Ambiente y energía. Automático: solo Ambiente y energía.
+   Las cámaras no cambian de lugar; el panel elegido aparece a su lado. */
+const PANELES = ["pCarro","pBrazo","pAmbiente"];
+var panelManual = (()=>{ try{ const v=localStorage.getItem("pyx_panel"); return PANELES.includes(v)?v:"pCarro"; }catch(e){ return "pCarro"; } })();
+var panelActual = null;
+function mostrarPanel(id, recordar=true){
+  if(id===panelActual) return;
+  panelActual = id;
+  PANELES.forEach(p=>{
+    const on = p===id, t=document.querySelector(`.pestanas [data-panel="${p}"]`);
+    $(p).hidden = !on;
+    t.setAttribute("aria-selected", String(on)); t.tabIndex = on ? 0 : -1;
+  });
+  if(recordar && estado.modo!=="automatico"){ panelManual=id; try{ localStorage.setItem("pyx_panel",id); }catch(e){} }
+  if(id==="pAmbiente") requestAnimationFrame(()=>{ try{ dibujarGrafico(); }catch(e){} });   // el gráfico necesita su ancho visible
+}
+document.querySelectorAll(".pestanas [role=tab]").forEach(t=>t.addEventListener("click",()=>mostrarPanel(t.dataset.panel)));
 $("btnManual").onclick=()=>{ if(!SOLO_LECTURA) ponerModo("manual"); };
 $("btnAuto").onclick=()=>{ if(!SOLO_LECTURA) ponerModo("automatico"); };
 
