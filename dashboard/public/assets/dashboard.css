@@ -38,7 +38,7 @@ header.auto{border-bottom-color:var(--auto)}
 .banner{background:var(--alerta);color:#fff;padding:10px 20px;font:700 20px var(--titulo);letter-spacing:.02em}
 .banner.aviso{background:var(--aviso);color:#2d3329}
 /* Distribución */
-main{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr);gap:16px;padding:16px 20px}
+main{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(360px,1fr);gap:16px;padding:16px 20px}
 section{background:var(--panel);border:1px solid var(--borde);border-radius:8px;padding:16px}
 .col{display:grid;gap:16px;align-content:start}
 
@@ -208,3 +208,24 @@ input[type=range]{width:100%;accent-color:var(--mineral)}
 .admin ol small{color:var(--apagado)}
 @media (min-width:1100px){.admin-g{grid-template-columns:1.3fr 1fr}.admin-g>div:nth-child(3){grid-column:1/-1}}
 @media (max-width:520px){.barra-usuario,.bn-demo{padding:8px 14px}.admin{margin:0 14px 20px}}
+
+/* ===== Centro de mando: pestañas Conducción / Brazo y pinza / Ambiente y energía ===== */
+.centro{padding:12px 16px 16px}
+.centro section{background:none;border:0;border-radius:0;padding:0}
+.panel-c>section+section{margin-top:18px;padding-top:16px;border-top:1px solid var(--borde)}
+.panel-c{animation:aparecer .18s ease-out}
+@keyframes aparecer{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.pestanas{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0 0 16px;padding-bottom:14px;border-bottom:1px solid var(--borde)}
+.pestanas button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:74px;padding:8px 6px;background:var(--roca);border:2px solid var(--borde);border-radius:8px;color:var(--texto);font:700 15px/1.1 var(--titulo);letter-spacing:.04em;text-transform:uppercase;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+.pestanas button svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.pestanas button:hover{border-color:var(--mineral)}
+.pestanas button[aria-selected="true"]{background:var(--mineral);border-color:var(--mineral);color:#fff;box-shadow:0 6px 16px -10px var(--mineral)}
+.pestanas button:focus-visible{outline:3px solid var(--salvia,#a9c79a);outline-offset:2px}
+.aviso-centro{margin:0 0 14px;padding:10px 12px;border-radius:6px;background:rgba(125,106,71,.16);color:var(--auto)}
+/* Modo automático: solo queda el panel de Ambiente y energía */
+.es-auto .pestanas{grid-template-columns:1fr}
+.es-auto .pestanas button:not(#tabAmbiente){display:none}
+.es-auto .pestanas button#tabAmbiente{flex-direction:row;min-height:52px;gap:10px}
+@media (max-width:520px){.pestanas button{min-height:64px;font-size:13px}.pestanas button svg{width:24px;height:24px}}
+.es-auto .pestanas button[aria-selected="true"]{background:var(--auto);border-color:var(--auto)}
+.panel-c .w-grid{grid-template-columns:repeat(auto-fit,minmax(125px,1fr))}
