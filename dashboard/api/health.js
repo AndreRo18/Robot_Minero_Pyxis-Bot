@@ -16,6 +16,12 @@ module.exports = H.endpoint(async (req, res) => {
     robotKey: Boolean(process.env.ROBOT_API_KEY),
     authSecret: Boolean(process.env.AUTH_SECRET),
     sessionsReady: A.secretoListo(),
+    problemas: [
+      ...(H.EN_VERCEL && !store.isRemote ? ['Falta conectar Upstash Redis (Vercel → Storage). Sin esto el inicio de sesión no funciona.'] : []),
+      ...(store.isRemote && redisOk === false ? ['Redis está configurado pero no responde. Revisa las variables KV_REST_API_URL / KV_REST_API_TOKEN.'] : []),
+      ...(!A.secretoListo() ? ['Falta la variable AUTH_SECRET.'] : []),
+      ...(!process.env.ROBOT_API_KEY ? ['Falta la variable ROBOT_API_KEY (el robot no podrá enviar datos).'] : []),
+    ],
     time: new Date().toISOString(),
   });
 });
