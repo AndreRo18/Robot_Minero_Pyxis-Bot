@@ -58,7 +58,6 @@
         <div><dt>O₂</dt><dd id="vO2">20.8<small>%</small></dd></div>
         <div><dt>H₂S</dt><dd id="vH2S">1<small>ppm</small></dd></div>
       </dl>
-      <p class="nota">Datos simulados con fines ilustrativos. Alertas del panel: CO 25/50 ppm · CH₄ 1.0/1.5 % · O₂ 20.0/19.5 % · H₂S 5/10 ppm.</p>
     </aside>
   </div>
 </div>
@@ -77,12 +76,12 @@
 
 <section id="como" class="alt">
   <div class="contenedor">
-    <div class="intro"><span class="etiqueta">Cómo funciona</span><h2>Del sensor al operador en cuatro pasos</h2></div>
+    <div class="intro"><span class="etiqueta">Cómo funciona</span><h2>Ciclo operativo inteligente: del dato bruto al control absoluto</h2></div>
     <ol class="pasos">
       <li><b>Mide</b><span>Un microcontrolador ESP32 lee los sensores de gas, ambiente, batería y orientación, y maneja motores y brazo.</span></li>
       <li><b>Procesa</b><span>Una Jetson Orin Nano con ROS 2 integra LiDAR y cámaras, y aplica las reglas de seguridad.</span></li>
       <li><b>Transmite</b><span>Una pasarela envía la telemetría a la nube y recoge las órdenes del operador.</span></li>
-      <li><b>Opera</b><span>El panel web muestra todo en tiempo casi real y permite conducir, mover el brazo o detener el robot.</span></li>
+      <li><b>Supervisa</b><span>El panel web centraliza la telemetría en tiempo real, permitiendo conducir la plataforma, accionar el brazo robótico y asegurar el control operativo con máxima precisión.</span></li>
     </ol>
   </div>
 </section>
@@ -90,8 +89,8 @@
 <section id="panel">
   <div class="contenedor dos">
     <div>
-      <span class="etiqueta">El panel</span><h2>Un centro de mando en el navegador</h2>
-      <p>Pensado para trabajar con guantes y poca luz: controles grandes, estados con color e ícono, y teclado para conducir.</p>
+      <span class="etiqueta">El panel</span><h2>Supervisión total desde cualquier navegador</h2>
+      <p>Telemetría y mando centralizados sin instalaciones complejas: interfaz web de alta respuesta optimizada para turnos críticos, con alertas visuales inmediatas y gestión de actuadores y sensores en tiempo real.</p>
       <ul class="chips"><li>Gases y alertas</li><li>Mapa LiDAR</li><li>Térmica</li><li>Brazo y pinza</li><li>Batería y clima</li><li>Roles y registro</li></ul>
       <div class="cta-fila"><a class="btn" href="/dashboard?demo=1">Abrir demostración</a><a class="btn sec" href="/login?modo=registro">Crear cuenta</a></div>
     </div>
