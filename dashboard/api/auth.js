@@ -11,6 +11,12 @@ const A = require('../lib/auth');
 const H = require('../lib/http');
 const store = require('../lib/store');
 
+// En Vercel cada petición puede atenderla una instancia distinta. Sin Upstash Redis los usuarios
+// quedarían en la memoria de UNA instancia y la sesión "aparecería y desaparecería" entre páginas
+// (el bucle login ⇄ panel). Por eso, sin base de datos, se responde con un error explícito.
+const SIN_BD = H.EN_VERCEL && !store.isRemote;
+const MSG_SIN_BD = 'La base de datos no está conectada (Upstash Redis). Sin ella las cuentas no se guardan y la sesión se pierde al cambiar de página. El administrador del sitio debe conectarla en Vercel → Storage y volver a desplegar.';
+
 const MAX_FALLOS = 8;            // intentos fallidos por correo+IP
 const VENTANA_LOGIN_S = 15 * 60;
 
@@ -69,6 +75,7 @@ async function entrar(req, res, b) {
 }
 
 module.exports = H.endpoint(async (req, res) => {
+  if (SIN_BD) return H.fail(res, 503, MSG_SIN_BD, { code: 'NO_DB' });
   if (req.method === 'GET') {
     const u = await A.usuarioActual(req);
     if (!u) return H.fail(res, 401, 'No hay sesión');
