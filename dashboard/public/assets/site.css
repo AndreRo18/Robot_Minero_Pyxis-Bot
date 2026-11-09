@@ -52,7 +52,9 @@ p{margin:0 0 1em}
 .heroe h1{color:#f4f1e6}
 .heroe h1 em{font-style:normal;color:var(--salvia)}
 .heroe .etiqueta{color:var(--salvia)}
-.heroe p.lead{font-size:clamp(18px,2vw,22px);color:#cfd6c4;max-width:34em}
+.heroe p.lead{font-size:clamp(17px,1.8vw,20px);color:#cfd6c4;max-width:36em}
+.heroe p.lead-titulo{font:700 clamp(20px,2.3vw,26px)/1.25 var(--titulo);letter-spacing:.01em;color:var(--salvia);margin-bottom:6px}
+.heroe p.lead-titulo strong{font-weight:700}
 .cta-fila{display:flex;flex-wrap:wrap;gap:14px;margin:26px 0 0}
 .heroe .btn.sec{color:#f4f1e6;border-color:#8e9c86}
 .heroe .btn.sec:hover{background:#f4f1e6;color:var(--noche)}
