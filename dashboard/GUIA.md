@@ -298,6 +298,25 @@ Lo que **debes hacer tú**:
 
 ---
 
+## 14.1 Si el inicio de sesión rebota entre /login y /dashboard
+
+Causa: en Vercel la base de datos (Upstash Redis) no está conectada. Cada página la puede atender un servidor distinto; sin Redis la cuenta solo existe en uno de ellos y la sesión "aparece y desaparece".
+
+1. Abre `https://TU-DOMINIO/api/health`. Si `storage` dice `"memory"` o la lista `problemas` no está vacía, sigue los pasos.
+2. Vercel → tu proyecto → **Storage** → **Create Database** → **Upstash for Redis** → **Connect Project** (marca Production y Preview).
+3. **Deployments → ⋯ → Redeploy**.
+4. Vuelve a `/api/health`: debe decir `"storage": "redis"`, `"redisOk": true` y `"problemas": []`.
+5. Crea de nuevo tu cuenta (las creadas antes solo vivían en memoria). La primera será la de administrador.
+
+Desde esta versión, si falta Redis la página de acceso muestra este aviso en lugar de quedarse en bucle.
+
+## 14.2 "Solicitud enviada" al compartir el enlace
+
+Si compartes una dirección del tipo `proyecto-git-main-usuario.vercel.app`, Vercel la protege con su propio inicio de sesión (*Deployment Protection*) y la otra persona ve "Solicitud enviada".
+
+- **Comparte siempre el dominio de producción:** Vercel → proyecto → **Settings → Domains** (el que termina en `.vercel.app` sin `-git-` ni códigos, o tu dominio propio).
+- Si quieres que también las direcciones de vista previa sean públicas: **Settings → Deployment Protection → Vercel Authentication → Disabled** (no recomendado para producción).
+
 ## 15. Referencia rápida de la API
 
 | Método | Ruta | Requiere | Cuerpo / respuesta |
