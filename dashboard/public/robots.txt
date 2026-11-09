@@ -4,4 +4,4 @@ Disallow: /dashboard
 Disallow: /login
 Disallow: /api/
 
-Sitemap: https://www.example.com/sitemap.xml
+Sitemap: https://robotmineropyxis-bot-dashboard.vercel.app/sitemap.xml
