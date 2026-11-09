@@ -19,7 +19,7 @@
     $("clave").autocomplete = reg ? "new-password" : "current-password";
     $("enviar").textContent = reg ? "Crear mi cuenta" : "Entrar al panel";
     $("nota").textContent = reg ? "La primera cuenta registrada en una instalación nueva es la del administrador. Las demás empiezan como observador y el administrador les da permiso de operar." : "";
-    document.title = (reg ? "Crear cuenta" : "Iniciar sesión") + " · TOPO Robotics";
+    document.title = (reg ? "Crear cuenta" : "Iniciar sesión") + " · Pyxis-Bot";
     msg("");
   }
   $("tabEntrar").onclick = function () { poner("entrar"); };
@@ -40,9 +40,21 @@
     b.style.width = (s * 25) + "%"; b.style.background = s <= 1 ? "#c0432f" : s === 2 ? "#b8861a" : "#4a8a3c";
   });
 
-  // Si ya hay sesión, ir directo al panel
-  fetch("/api/auth", { credentials: "same-origin" }).then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (d) { if (d && d.user) location.replace(next); }).catch(function () {});
+  // Si ya hay sesión, ir directo al panel.
+  // Protección anti-bucle: si el panel nos acaba de devolver aquí (hace < 20 s), NO se redirige otra vez;
+  // se muestra el problema para que la persona no quede rebotando entre las dos páginas.
+  var rebote = 0;
+  try { rebote = Number(sessionStorage.getItem("pyx_rebote")) || 0; sessionStorage.removeItem("pyx_rebote"); } catch (e) {}
+  var reciente = Date.now() - rebote < 20000;
+  fetch("/api/auth", { credentials: "same-origin", cache: "no-store" })
+    .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { s: r.status, ok: r.ok, d: d }; }); })
+    .then(function (x) {
+      if (x.s === 503) { msg(x.d.error || "El servidor no está configurado todavía."); return; }
+      if (x.ok && x.d && x.d.user) {
+        if (reciente) { msg("Tu sesión está activa, pero el panel no pudo validarla. Recarga la página en unos segundos; si se repite, avisa al administrador (revisar /api/health)."); return; }
+        location.replace(next);
+      }
+    }).catch(function () {});
 
   $("form").addEventListener("submit", function (e) {
     e.preventDefault(); msg("");
@@ -61,7 +73,7 @@
         if (x.ok) { location.replace(next); return; }
         var t = x.d && x.d.error ? x.d.error : "No se pudo completar la solicitud.";
         if (x.s === 429 && x.d.retryAfter) t += " (espera " + Math.ceil(x.d.retryAfter / 60) + " min)";
-        if (x.s === 503) t = "El servidor aún no está configurado (falta AUTH_SECRET). Avisa al administrador del sitio.";
+        if (x.s === 503 && !(x.d && x.d.error)) t = "El servidor aún no está configurado. Avisa al administrador del sitio.";
         msg(t); bt.disabled = false; bt.textContent = txt;
       })
       .catch(function () { msg("Sin conexión con el servidor. Revisa tu Internet e inténtalo de nuevo."); bt.disabled = false; bt.textContent = txt; });
