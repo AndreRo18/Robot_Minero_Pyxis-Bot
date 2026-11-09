@@ -628,7 +628,12 @@ const ROL = {admin:"Administrador", operator:"Operador", observer:"Observador", 
 const NOMBRE_EV = {co:"Monóxido de carbono (CO)", ch4:"Metano (CH₄)", o2:"Oxígeno (O₂)", h2s:"Sulfuro de hidrógeno (H₂S)", temp:"Temperatura", hum:"Humedad", bat:"Batería", state:"Estado del robot"};
 const UNI_EV = {co:"ppm", ch4:"%", o2:"%", h2s:"ppm", temp:"°C", hum:"%", bat:"%"};
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const login = () => location.replace("/login?next=/dashboard");
+let _redirigiendo = false;
+const login = () => {
+  if (_redirigiendo) return; _redirigiendo = true;
+  try { sessionStorage.setItem("pyx_rebote", String(Date.now())); } catch (e) {}
+  location.replace("/login?next=/dashboard");
+};
 const fhora = t => new Date(t).toLocaleString([], {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"});
 
 let _ultToast = {m:"",t:0};
@@ -811,7 +816,9 @@ async function arrancar(){
     try{
       const r = await fetch("/api/auth",{credentials:"same-origin",cache:"no-store"});
       if(r.status===401){ login(); return; }
-      USER = (await r.json()).user;
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok){ toast(j.error||"El servidor no respondió correctamente","error"); conexion(false,"Servidor sin configurar"); return; }
+      USER = j.user;
     }catch(e){ toast("Sin conexión con el servidor","error"); }
     if(USER) aplicarUsuario();
     $("usuario").hidden=false;
