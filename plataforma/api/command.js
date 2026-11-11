@@ -13,13 +13,13 @@
  *   {type:'arm', v:[base, hombro, codo, muñeca]}  grados, -90..90 (acepta 3 sin muñeca)
  *   {type:'grip', v:0..100}                  0 cerrada, 100 abierta
  *
- * GET /api/command    (robot, X-Api-Key)  lo que la pasarela debe aplicar (ver lib/control.js)
+ * GET /api/command    (robot, X-Api-Key)  lo que la pasarela debe aplicar (ver backend/control.js)
  * GET /api/command[?robot=id] (sesión)    estado de control para el panel
  */
-const H = require('../lib/http');
-const A = require('../lib/auth');
-const C = require('../lib/control');
-const db = require('../lib/db');
+const H = require('../backend/http');
+const A = require('../backend/auth');
+const C = require('../backend/control');
+const db = require('../backend/db');
 
 async function ordenar(req, res) {
   if (!H.solicitudSegura(req)) return H.fail(res, 403, 'Solicitud no permitida');

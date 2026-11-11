@@ -7,10 +7,10 @@
  *                                       (correo verificado) queda en la empresa. Repetirla reenvía el correo.
  * POST /api/users {cancelar}            borra una invitación pendiente
  */
-const A = require('../lib/auth');
-const H = require('../lib/http');
-const db = require('../lib/db');
-const correo = require('../lib/correo');
+const A = require('../backend/auth');
+const H = require('../backend/http');
+const db = require('../backend/db');
+const correo = require('../backend/correo');
 
 module.exports = H.endpoint(async (req, res) => {
   const admin = await A.exigir(req, res, { admin: true });

@@ -7,11 +7,11 @@
  * GET  /api/telemetry?history=300[&robot=id]   (sesión) última lectura, historial, alertas y umbrales
  *      Solo de robots de la empresa del usuario.
  */
-const H = require('../lib/http');
-const A = require('../lib/auth');
-const S = require('../lib/safety');
-const C = require('../lib/control');
-const db = require('../lib/db');
+const H = require('../backend/http');
+const A = require('../backend/auth');
+const S = require('../backend/safety');
+const C = require('../backend/control');
+const db = require('../backend/db');
 
 const HIST_MAX = 3600;     // 1 hora a 1 lectura por segundo
 const ESTADOS = ['NORMAL', 'RTH', 'ESPERA'];

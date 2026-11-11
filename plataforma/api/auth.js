@@ -6,9 +6,9 @@
  * POST /api/auth {action:'empresa', nombre}   el usuario sin empresa registra la suya y queda como admin
  * POST /api/auth {action:'logout'}     → {logoutUrl} para cerrar también la sesión de Auth0
  */
-const A = require('../lib/auth');
-const H = require('../lib/http');
-const db = require('../lib/db');
+const A = require('../backend/auth');
+const H = require('../backend/http');
+const db = require('../backend/db');
 
 const base = H.baseUrl;
 const alLogin = (res, msg, extra) => H.redirigir(res, '/login?error=' + encodeURIComponent(msg), extra);

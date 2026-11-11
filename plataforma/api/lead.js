@@ -4,9 +4,9 @@
  * POST /api/lead {name, email, company, sector, message, website}   (público; "website" es una trampa para bots)
  * GET  /api/lead                                                    (SUPERADMIN_EMAILS: el equipo Pyxis-Bot) últimas solicitudes
  */
-const H = require('../lib/http');
-const A = require('../lib/auth');
-const db = require('../lib/db');
+const H = require('../backend/http');
+const A = require('../backend/auth');
+const db = require('../backend/db');
 
 const SECTORES = ['mineria', 'tuneles', 'petroleo-gas', 'industria', 'rescate', 'agroindustria', 'otro'];
 

@@ -1,4 +1,4 @@
-// Servidor local sin dependencias: sirve /public y ejecuta los endpoints de /api como lo hace Vercel.
+// Servidor local sin dependencias: sirve /frontend y ejecuta los endpoints de /api como lo hace Vercel.
 //   node dev-server.mjs            -> http://localhost:3000
 //   PORT=4000 node dev-server.mjs
 // Sin variables de entorno usa memoria (los usuarios se borran al reiniciar) y claves de desarrollo:
@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const RAIZ = path.dirname(fileURLToPath(import.meta.url));
-const PUBLIC = path.join(RAIZ, 'public');
+const PUBLIC = path.join(RAIZ, 'frontend');
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',

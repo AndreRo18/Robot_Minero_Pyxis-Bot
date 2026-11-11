@@ -1,8 +1,8 @@
 'use strict';
 /**
  * UMBRALES DE SEGURIDAD (edítalos aquí).
- * Deben ser IGUALES a los del firmware del ESP32 (esp32/src/main.cpp) y a los del objeto WID del dashboard
- * (public/assets/dashboard.js). El firmware es quien detiene el robot; este archivo solo decide los estados
+ * Deben ser IGUALES a los del firmware del ESP32 (robot/esp32/src/main.cpp) y a los del objeto WID del dashboard
+ * (plataforma/frontend/assets/dashboard.js). El firmware es quien detiene el robot; este archivo solo decide los estados
  * que se muestran y si el servidor acepta pasar a modo automático.
  *
  * Son valores de referencia. Valídalos con el área HSE y con la normativa minera aplicable

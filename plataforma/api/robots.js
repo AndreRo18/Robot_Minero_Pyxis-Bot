@@ -5,10 +5,10 @@
  * POST /api/robots {nombre}      registra un robot y devuelve su clave UNA sola vez (admin)
  * POST /api/robots {borrar: id}  elimina un robot y sus datos (admin)
  */
-const A = require('../lib/auth');
-const H = require('../lib/http');
-const C = require('../lib/control');
-const db = require('../lib/db');
+const A = require('../backend/auth');
+const H = require('../backend/http');
+const C = require('../backend/control');
+const db = require('../backend/db');
 
 module.exports = H.endpoint(async (req, res) => {
   if (req.method === 'GET') {
