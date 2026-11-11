@@ -31,9 +31,9 @@ En el launch, `/dev/video0` es la cámara RGB. En `flir_lepton_node.py`, el par�
 **Calibrar la odometría (necesario para el retorno):** empuja el robot 1 m en línea recta y mira `ros2 topic echo /robot_status`. Ajusta el parámetro `ticks_por_metro` del nodo hasta que `x` marque 1.0.
 
 ## 3. Dashboard
-1. Abre `dashboard/index.html` con Live Server.
-2. Cambia `HOST` por la IP de la Jetson en la red del Bullet, o abre `index.html?host=IP`.
-3. `?host=` vacío activa el modo demo sin robot.
+- **En la nube (empresas):** https://robotmineropyxis-bot-dashboard.vercel.app → inicio de sesión con Auth0. Configuración en `dashboard/README.md`.
+- **En la red local de la mina (con video):** `https://robotmineropyxis-bot-dashboard.vercel.app/dashboard?host=IP_DE_LA_JETSON`.
+- **Demostración sin robot:** `/dashboard?demo=1`.
 
 ## Cómo sigue el diagrama de flujo
 - **Señal de la estación base:** el dashboard manda un latido dos veces por segundo. Si no llega, la Jetson cuenta el tiempo de pérdida.
