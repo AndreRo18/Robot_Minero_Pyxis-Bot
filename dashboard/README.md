@@ -26,9 +26,10 @@ Marca "TOPO Robotics" y dominio `www.example.com` son **provisionales** (ver "Pe
    - Allowed Logout URLs: `https://TU-DOMINIO/login`
    - Copia Domain, Client ID y Client Secret.
    - Recomendado: *Authentication → Database* exigir verificación de correo (las invitaciones solo funcionan con correo verificado).
-3. **Vercel → Settings → Environment Variables:** `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH_SECRET`, `SUPERADMIN_EMAILS` (ver `.env.example`). Luego *Redeploy*.
-4. Abre `/api/health`: debe decir `"dbOk": true, "auth0": true, "problemas": []`.
-5. Entra en `/login`, registra tu empresa, registra el robot y copia la clave en la Jetson:
+3. **Gmail (correos de invitación):** en https://myaccount.google.com/apppasswords crea una *contraseña de aplicación* (requiere verificación en 2 pasos) y agrega `GMAIL_USER` (tu Gmail) y `GMAIL_APP_PASSWORD` en Vercel. Sin ellas, las invitaciones se crean pero no se envía el correo.
+4. **Vercel → Settings → Environment Variables:** `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH_SECRET`, `SUPERADMIN_EMAILS` (ver `.env.example`). Luego *Redeploy*.
+5. Abre `/api/health`: debe decir `"dbOk": true, "auth0": true, "problemas": []`.
+6. Entra en `/login`, registra tu empresa, registra el robot y copia la clave en la Jetson:
    `export CLOUD_URL=https://TU-DOMINIO CLOUD_KEY=pyx_...`
 
 ## Probar en local

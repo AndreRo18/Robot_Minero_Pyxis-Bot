@@ -816,7 +816,7 @@ async function cargarAdmin(){
       $("tUsuarios").innerHTML = "<thead><tr><th>Usuario</th><th>Último acceso</th><th>Rol</th></tr></thead><tbody>"+
         u.users.map(x=>`<tr data-s="${esc(x.sub)}"><td><b>${esc(x.name)}</b><small>${esc(x.email)}</small></td><td>${x.lastLogin?fhora(x.lastLogin):"—"}</td>
         <td><select aria-label="Rol de ${esc(x.name)}">${Object.keys(ROL).map(r=>`<option value="${r}"${r===x.role?" selected":""}>${ROL[r]}</option>`).join("")}</select></td></tr>`).join("")+
-        u.invitaciones.map(x=>`<tr><td><b>${esc(x.email)}</b><small>Invitación pendiente</small></td><td>—</td><td>${ROL[x.role]} <button type="button" class="btn-sec peq" data-cancelar="${esc(x.email)}">Cancelar</button></td></tr>`).join("")+"</tbody>";
+        u.invitaciones.map(x=>`<tr><td><b>${esc(x.email)}</b><small>Invitación pendiente</small></td><td>—</td><td>${ROL[x.role]} <button type="button" class="btn-sec peq" data-reenviar="${esc(x.email)}" data-rol="${x.role}">Reenviar</button> <button type="button" class="btn-sec peq" data-cancelar="${esc(x.email)}">Cancelar</button></td></tr>`).join("")+"</tbody>";
       $("lAudit").innerHTML = u.audit.map(a=>`<li><b>${esc(a.accion)}</b> · ${esc(a.quien)} <small>${esc(a.detalle)} · ${fhora(a.t)}</small></li>`).join("") || "<li>Sin actividad registrada</li>";
     }
   }else ["tRobots","fRobot","tUsuarios","fInvitar","lAudit"].forEach(id=>$(id).closest(".admin-g > div").hidden=true);
@@ -834,13 +834,18 @@ $("tUsuarios").addEventListener("change", async e=>{
   cargarAdmin();
 });
 $("tUsuarios").addEventListener("click", async e=>{
+  const r=e.target.closest("[data-reenviar]"); if(!r) return;
+  const j = await api("/api/users", {invitar:r.dataset.reenviar, role:r.dataset.rol});
+  if(j.ok) toast(j.correo ? "Invitación reenviada" : "No se pudo enviar el correo", j.correo?"ok":"error");
+});
+$("tUsuarios").addEventListener("click", async e=>{
   const b=e.target.closest("[data-cancelar]"); if(!b) return;
   await api("/api/users", {cancelar:b.dataset.cancelar}); cargarAdmin();
 });
 $("fInvitar").addEventListener("submit", async e=>{
   e.preventDefault(); const f=e.target;
   const j = await api("/api/users", {invitar:f.email.value, role:f.role.value});
-  if(j.ok){ toast("Invitación creada: que entre con Auth0 usando ese correo","ok"); f.reset(); cargarAdmin(); }
+  if(j.ok){ toast(j.correo ? "Invitación enviada por correo a "+f.email.value : "Invitación creada, pero no se pudo enviar el correo. Avísale que entre con ese correo","ok"); f.reset(); cargarAdmin(); }
 });
 $("fRobot").addEventListener("submit", async e=>{
   e.preventDefault(); const f=e.target;

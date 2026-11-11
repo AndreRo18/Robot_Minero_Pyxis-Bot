@@ -3,12 +3,14 @@
  * Usuarios de MI empresa (solo su administrador).
  * GET  /api/users                       usuarios, invitaciones pendientes y bitácora de la empresa
  * POST /api/users {sub, role}           cambia el rol (admin | operator | observer | blocked)
- * POST /api/users {invitar, role}       invita un correo: al entrar con Auth0 (correo verificado) queda en la empresa
+ * POST /api/users {invitar, role}       invita un correo y le envía la invitación por Gmail: al entrar con Auth0
+ *                                       (correo verificado) queda en la empresa. Repetirla reenvía el correo.
  * POST /api/users {cancelar}            borra una invitación pendiente
  */
 const A = require('../lib/auth');
 const H = require('../lib/http');
 const db = require('../lib/db');
+const correo = require('../lib/correo');
 
 module.exports = H.endpoint(async (req, res) => {
   const admin = await A.exigir(req, res, { admin: true });
@@ -44,7 +46,10 @@ module.exports = H.endpoint(async (req, res) => {
     await db.q(`insert into invitaciones (email, empresa_id, rol) values ($1, $2, $3)
                 on conflict (email) do update set empresa_id = $2, rol = $3`, [email, emp, b.role]);
     await A.auditar(emp, admin.email, 'invitación', `${email} como ${b.role}`);
-    return H.send(res, 201, { ok: true });
+    const enviado = await correo.enviarInvitacion({
+      para: email, empresa: admin.empresa, invitadoPor: admin.name, rol: b.role, url: H.baseUrl(req) + '/login',
+    });
+    return H.send(res, 201, { ok: true, correo: enviado });
   }
 
   const u = await db.uno('select email, rol from usuarios where sub = $1 and empresa_id = $2', [String(b.sub || ''), emp]);

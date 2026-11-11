@@ -84,6 +84,9 @@ function redirigir(res, url, extra) {
   res.end();
 }
 
+/** URL pública del sitio (APP_URL o el dominio de la petición). */
+const baseUrl = (req) => (process.env.APP_URL || `${esHttps(req) ? 'https' : 'http'}://${req.headers.host}`).replace(/\/$/, '');
+
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
 /** Envuelve un endpoint: captura errores y los responde como JSON. */
@@ -104,4 +107,4 @@ const num = (v, min, max) => {
   return Number.isFinite(n) && n >= min && n <= max ? n : null;
 };
 
-module.exports = { send, fail, HttpError, readBody, consulta, cookies, ip, esHttps, solicitudSegura, iguales, redirigir, sha256, endpoint, num, EN_VERCEL };
+module.exports = { send, fail, HttpError, readBody, consulta, cookies, ip, esHttps, solicitudSegura, iguales, redirigir, baseUrl, sha256, endpoint, num, EN_VERCEL };

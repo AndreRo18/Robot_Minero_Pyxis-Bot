@@ -22,6 +22,8 @@ Object.assign(process.env, { AUTH0_DOMAIN: AUTH0, AUTH0_CLIENT_ID: 'cliente-123'
 const sql = pgLocal();
 for (const t of ['leads', 'auditoria', 'alertas', 'lecturas', 'robots', 'invitaciones', 'usuarios', 'empresas']) await sql.query(`drop table if exists ${t} cascade`);
 globalThis.__sqlPrueba = sql;
+const correos = [];
+globalThis.__correoPrueba = { sendMail: async (m) => { correos.push(m); } };
 const { crearServidor } = await import('../dev-server.mjs');
 const srv = crearServidor();
 await new Promise((r) => srv.listen(0, r));
@@ -111,6 +113,9 @@ verif('Beto no puede borrar el robot de A → 404', r.s === 404);
 console.log('\n3. Invitaciones y roles');
 r = await api('POST', '/api/users', { invitar: 'carla@minera-a.co', role: 'operator' }, { cookie: ana.cookie });
 verif('Ana invita a Carla como operadora', r.s === 201);
+const mail = correos.at(-1) || {};
+verif('se envía el correo de invitación a Carla', r.j.correo === true && mail.to === 'carla@minera-a.co' && /Minera A/.test(mail.subject), JSON.stringify(r.j));
+verif('el correo trae rol, empresa, quién invita y el enlace', /Operador/.test(mail.html) && /ana/.test(mail.html) && mail.html.includes(BASE + '/login') && mail.text.includes(BASE + '/login'));
 await api('POST', '/api/users', { invitar: 'dani@minera-a.co', role: 'observer' }, { cookie: ana.cookie });
 let carla = await entrar(persona('auth0|carla', 'carla@minera-a.co', false));
 r = await api('GET', '/api/auth', undefined, { cookie: carla.cookie });

@@ -10,7 +10,7 @@ const A = require('../lib/auth');
 const H = require('../lib/http');
 const db = require('../lib/db');
 
-const base = (req) => (process.env.APP_URL || `${H.esHttps(req) ? 'https' : 'http'}://${req.headers.host}`).replace(/\/$/, '');
+const base = H.baseUrl;
 const alLogin = (res, msg, extra) => H.redirigir(res, '/login?error=' + encodeURIComponent(msg), extra);
 
 function iniciar(req, res, q) {
