@@ -65,7 +65,7 @@ class CloudGateway:
                 self.conectado = True
             except urllib.error.HTTPError as e:
                 if e.code == 401:
-                    self.log('Nube: clave del robot rechazada (revisa cloud_key / ROBOT_API_KEY)')
+                    self.log('Nube: clave del robot rechazada (revisa cloud_key: la clave pyx_... del robot en el panel)')
                 self._fallo(e, 'telemetría')
             except Exception as e:  # noqa: BLE001  (red caída, DNS, timeout…)
                 self._fallo(e, 'telemetría')

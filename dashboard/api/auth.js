@@ -1,95 +1,90 @@
 'use strict';
 /**
- * GET  /api/auth                        usuario de la sesión actual
- * POST /api/auth {action:'register', name, company, email, password, terms:true}
- * POST /api/auth {action:'login', email, password}
- * POST /api/auth {action:'logout'}
- *
- * El primer usuario registrado queda como administrador; los demás, como observadores.
+ * GET  /api/auth?login[&signup]        → redirige a Auth0 (iniciar sesión o crear cuenta)
+ * GET  /api/auth?code=..&state=..      ← Auth0 vuelve aquí (Callback URL en Auth0: https://TU-DOMINIO/api/auth)
+ * GET  /api/auth                       usuario de la sesión actual
+ * POST /api/auth {action:'empresa', nombre}   el usuario sin empresa registra la suya y queda como admin
+ * POST /api/auth {action:'logout'}     → {logoutUrl} para cerrar también la sesión de Auth0
  */
 const A = require('../lib/auth');
 const H = require('../lib/http');
-const store = require('../lib/store');
+const db = require('../lib/db');
 
-// En Vercel cada petición puede atenderla una instancia distinta. Sin Upstash Redis los usuarios
-// quedarían en la memoria de UNA instancia y la sesión "aparecería y desaparecería" entre páginas
-// (el bucle login ⇄ panel). Por eso, sin base de datos, se responde con un error explícito.
-const SIN_BD = H.EN_VERCEL && !store.isRemote;
-const MSG_SIN_BD = 'La base de datos no está conectada (Upstash Redis). Sin ella las cuentas no se guardan y la sesión se pierde al cambiar de página. El administrador del sitio debe conectarla en Vercel → Storage y volver a desplegar.';
+const base = (req) => (process.env.APP_URL || `${H.esHttps(req) ? 'https' : 'http'}://${req.headers.host}`).replace(/\/$/, '');
+const alLogin = (res, msg, extra) => H.redirigir(res, '/login?error=' + encodeURIComponent(msg), extra);
 
-const MAX_FALLOS = 8;            // intentos fallidos por correo+IP
-const VENTANA_LOGIN_S = 15 * 60;
-
-async function registrar(req, res, b) {
-  const email = A.normalizarEmail(b.email);
-  const name = A.limpiar(b.name, 60);
-  const company = A.limpiar(b.company, 80);
-  if (name.length < 2) return H.fail(res, 400, 'Escribe tu nombre');
-  if (!A.emailValido(email)) return H.fail(res, 400, 'Escribe un correo válido');
-  const errPw = A.validarPassword(b.password);
-  if (errPw) return H.fail(res, 400, errPw);
-  if (b.terms !== true) return H.fail(res, 400, 'Debes aceptar los términos y la política de privacidad');
-
-  const lim = await A.contar('rl:reg:' + H.ip(req), 5, 3600);
-  if (!lim.ok) return H.fail(res, 429, 'Demasiados registros desde esta red. Inténtalo más tarde', { retryAfter: lim.retryAfter });
-
-  const esPrimero = (await store.cmd('SET', 'admin:reclamado', email, 'NX')) === 'OK';
-  const user = {
-    email, name, company, role: esPrimero ? 'admin' : 'observer',
-    hash: await A.hashPassword(b.password), createdAt: Date.now(), lastLogin: Date.now(), sv: 1,
-  };
-  const creado = await store.cmd('HSETNX', 'users', email, JSON.stringify(user));
-  if (creado !== 1) {
-    if (esPrimero) await store.cmd('DEL', 'admin:reclamado');   // no se pudo crear: se libera la reclamación
-    return H.fail(res, 409, 'Ese correo ya está registrado. Inicia sesión');
-  }
-  await A.auditar(email, 'registro', 'rol ' + user.role);
-  return H.send(res, 201, { ok: true, user: A.publico(user), primerAdmin: esPrimero }, { 'Set-Cookie': A.cookieSesion(req, user) });
+function iniciar(req, res, q) {
+  if (!A.auth0Listo()) return alLogin(res, 'Auth0 no está configurado (AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET)');
+  const state = require('crypto').randomBytes(16).toString('hex');
+  const p = new URLSearchParams({
+    response_type: 'code', client_id: A.CLIENT_ID, redirect_uri: base(req) + '/api/auth',
+    scope: 'openid profile email', state,
+  });
+  if (q.signup !== undefined) p.set('screen_hint', 'signup');
+  return H.redirigir(res, `${A.AUTH0}/authorize?${p}`, { 'Set-Cookie': A.cookie(req, 'rm_state', state, 600) });
 }
 
-async function entrar(req, res, b) {
-  const email = A.normalizarEmail(b.email);
-  const password = typeof b.password === 'string' ? b.password : '';
-  if (!A.emailValido(email) || !password) return H.fail(res, 400, 'Escribe tu correo y tu contraseña');
+async function volver(req, res, q) {
+  const borrarState = A.cookie(req, 'rm_state', '', 0);
+  if (q.error) return alLogin(res, q.error_description || q.error, { 'Set-Cookie': borrarState });
+  const st = H.cookies(req).rm_state;
+  if (!st || !q.state || !H.iguales(st, q.state)) return alLogin(res, 'La sesión de inicio expiró. Inténtalo de nuevo', { 'Set-Cookie': borrarState });
 
-  const clave = `rl:login:${email}:${H.ip(req)}`;
-  const previos = Number(await store.cmd('GET', clave)) || 0;
-  if (previos >= MAX_FALLOS) {
-    const ttl = await store.cmd('TTL', clave);
-    return H.fail(res, 429, 'Demasiados intentos. Inténtalo de nuevo en unos minutos', { retryAfter: ttl > 0 ? ttl : VENTANA_LOGIN_S });
+  // Cambiar el código por el id_token. Llega directo de Auth0 por HTTPS con nuestro client_secret,
+  // por eso basta validar emisor, audiencia y vencimiento (OpenID Connect Core §3.1.3.7).
+  const r = await fetch(A.AUTH0 + '/oauth/token', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ grant_type: 'authorization_code', client_id: A.CLIENT_ID, client_secret: A.CLIENT_SECRET, code: q.code, redirect_uri: base(req) + '/api/auth' }),
+  });
+  const tok = await r.json().catch(() => ({}));
+  let p = null;
+  try { p = JSON.parse(Buffer.from(String(tok.id_token).split('.')[1], 'base64url').toString('utf8')); } catch { /* inválido */ }
+  const aud = p && (Array.isArray(p.aud) ? p.aud : [p.aud]);
+  if (!r.ok || !p || p.iss !== A.AUTH0 + '/' || !aud.includes(A.CLIENT_ID) || !(p.exp > Date.now() / 1000) || !p.sub) {
+    return alLogin(res, 'No se pudo validar el inicio de sesión con Auth0', { 'Set-Cookie': borrarState });
   }
 
-  const user = await A.buscarUsuario(email);
-  const ok = await A.verifyPassword(password, user ? user.hash : await A.hashFalso());
-  if (!user || !ok) {
-    const lim = await A.contar(clave, MAX_FALLOS, VENTANA_LOGIN_S);
-    if (!lim.ok) return H.fail(res, 429, 'Demasiados intentos. Inténtalo de nuevo en unos minutos', { retryAfter: lim.retryAfter });
-    return H.fail(res, 401, 'Correo o contraseña incorrectos');
-  }
-  if (user.role === 'blocked') return H.fail(res, 403, 'Tu cuenta está bloqueada. Contacta al administrador');
+  const email = A.normalizarEmail(p.email);
+  const nombre = A.limpiar(p.name || p.nickname || email, 60);
+  const u = await db.uno(
+    `insert into usuarios (sub, email, nombre, verificado) values ($1, $2, $3, $4)
+     on conflict (sub) do update set email = $2, nombre = $3, verificado = $4, ultimo_acceso = now()
+     returning rol, empresa_id`, [p.sub, email, nombre, p.email_verified === true]);
+  if (u.rol === 'blocked') return alLogin(res, 'Tu cuenta está bloqueada. Contacta al administrador de tu empresa', { 'Set-Cookie': borrarState });
+  return H.redirigir(res, '/dashboard', { 'Set-Cookie': [A.cookieSesion(req, p.sub), borrarState] });
+}
 
-  await store.cmd('DEL', clave);
-  user.lastLogin = Date.now();
-  await store.cmd('HSET', 'users', email, JSON.stringify(user));
-  return H.send(res, 200, { ok: true, user: A.publico(user) }, { 'Set-Cookie': A.cookieSesion(req, user) });
+async function crearEmpresa(req, res, b) {
+  const u = await A.usuarioActual(req);
+  if (!u) return H.fail(res, 401, 'Inicia sesión para continuar');
+  if (u.empresaId != null) return H.fail(res, 409, 'Ya perteneces a una empresa');
+  const nombre = A.limpiar(b.nombre, 80);
+  if (nombre.length < 2) return H.fail(res, 400, 'Escribe el nombre de la empresa');
+  const e = await db.uno('insert into empresas (nombre) values ($1) returning id', [nombre]);
+  await db.q(`update usuarios set empresa_id = $2, rol = 'admin' where sub = $1`, [u.sub, e.id]);
+  await A.auditar(e.id, u.email, 'empresa creada', nombre);
+  return H.send(res, 201, { ok: true, empresa: nombre });
 }
 
 module.exports = H.endpoint(async (req, res) => {
-  if (SIN_BD) return H.fail(res, 503, MSG_SIN_BD, { code: 'NO_DB' });
+  if (!A.secretoListo()) return H.fail(res, 503, 'El servidor no tiene configurada la variable AUTH_SECRET');
   if (req.method === 'GET') {
+    const q = H.consulta(req);
+    if (q.login !== undefined) return iniciar(req, res, q);
+    if (q.code || q.error) return volver(req, res, q);
     const u = await A.usuarioActual(req);
     if (!u) return H.fail(res, 401, 'No hay sesión');
     return H.send(res, 200, { ok: true, user: u, canControl: u.canControl });
   }
   if (req.method !== 'POST') return H.fail(res, 405, 'Método no permitido');
   if (!H.solicitudSegura(req)) return H.fail(res, 403, 'Solicitud no permitida');
-  if (!A.secretoListo()) return H.fail(res, 503, 'El servidor no tiene configurada la variable AUTH_SECRET');
-
   const b = await H.readBody(req);
-  switch (b.action) {
-    case 'register': return registrar(req, res, b);
-    case 'login': return entrar(req, res, b);
-    case 'logout': return H.send(res, 200, { ok: true }, { 'Set-Cookie': A.cookieBorrar(req) });
-    default: return H.fail(res, 400, 'Acción desconocida');
+  if (b.action === 'empresa') return crearEmpresa(req, res, b);
+  if (b.action === 'logout') {
+    const logoutUrl = A.auth0Listo()
+      ? `${A.AUTH0}/v2/logout?${new URLSearchParams({ client_id: A.CLIENT_ID, returnTo: base(req) + '/login' })}`
+      : '/login';
+    return H.send(res, 200, { ok: true, logoutUrl }, { 'Set-Cookie': A.cookieBorrar(req) });
   }
+  return H.fail(res, 400, 'Acción desconocida');
 });

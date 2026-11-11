@@ -1,227 +1,181 @@
-// Pruebas del backend: node tools/test-api.mjs   (no necesita claves ni Redis: usa memoria)
-import { crearServidor } from '../dev-server.mjs';
+// Pruebas del backend con Postgres local (en lugar de Neon) y un Auth0 simulado.
+//   PGURL=postgres://usuario:clave@127.0.0.1/base_vacia node tools/test-api.mjs
+// ¡Borra y recrea las tablas de esa base! Usa una base de pruebas.
+import http from 'node:http';
+import { pgLocal } from './pg-local.mjs';
 
+// ---- Auth0 simulado: el "code" es el perfil del usuario en base64url ----
+const auth0 = http.createServer((req, res) => {
+  let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => {
+    const j = JSON.parse(b || '{}');
+    if (req.url !== '/oauth/token' || j.client_secret !== 'secreto-cliente') { res.statusCode = 403; return res.end('{}'); }
+    const perfil = JSON.parse(Buffer.from(j.code, 'base64url').toString());
+    const p = Object.assign({ iss: AUTH0 + '/', aud: 'cliente-123', exp: Date.now() / 1000 + 600 }, perfil);
+    const id_token = ['e30', Buffer.from(JSON.stringify(p)).toString('base64url'), 'firma'].join('.');
+    res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ id_token }));
+  });
+});
+await new Promise((r) => auth0.listen(0, r));
+const AUTH0 = `http://localhost:${auth0.address().port}`;
+Object.assign(process.env, { AUTH0_DOMAIN: AUTH0, AUTH0_CLIENT_ID: 'cliente-123', AUTH0_CLIENT_SECRET: 'secreto-cliente', SUPERADMIN_EMAILS: 'root@pyxis.co' });
+
+const sql = pgLocal();
+for (const t of ['leads', 'auditoria', 'alertas', 'lecturas', 'robots', 'invitaciones', 'usuarios', 'empresas']) await sql.query(`drop table if exists ${t} cascade`);
+globalThis.__sqlPrueba = sql;
+const { crearServidor } = await import('../dev-server.mjs');
 const srv = crearServidor();
 await new Promise((r) => srv.listen(0, r));
 const BASE = `http://localhost:${srv.address().port}`;
-const CLAVE = 'dev-robot-key';
+
 let ok = 0, mal = 0;
 const verif = (nombre, cond, extra = '') => { cond ? ok++ : mal++; console.log(`  ${cond ? 'OK   ' : 'FALLA'} ${nombre}${cond ? '' : '  → ' + extra}`); };
-const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function api(metodo, ruta, cuerpo, { cookie, ip = '10.0.0.1', clave, headers = {} } = {}) {
-  const h = Object.assign({ 'x-forwarded-for': ip }, headers);
-  if (cuerpo !== undefined && !h['content-type']) h['content-type'] = 'application/json';
+async function api(metodo, ruta, cuerpo, { cookie, clave, headers = {} } = {}) {
+  const h = Object.assign({}, headers);
+  if (cuerpo !== undefined) h['content-type'] = 'application/json';
   if (cookie) h.cookie = cookie;
   if (clave) h['x-api-key'] = clave;
-  const r = await fetch(BASE + ruta, { method: metodo, headers: h, body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo) });
+  const r = await fetch(BASE + ruta, { method: metodo, headers: h, redirect: 'manual', body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo) });
   let j = null; try { j = await r.json(); } catch { /* sin cuerpo */ }
-  const sc = r.headers.getSetCookie ? r.headers.getSetCookie() : [];
-  return { s: r.status, j, sc, cookie: sc.length ? sc[0].split(';')[0] : null, setCookieCompleto: sc[0] || '' };
+  return { s: r.status, j, loc: r.headers.get('location') || '', sc: r.headers.getSetCookie() };
 }
-const reg = (n, e, p = 'Clave1234', extra = {}) => api('POST', '/api/auth', Object.assign({ action: 'register', name: n, company: 'ACME', email: e, password: p, terms: true }, extra), { ip: extra.ip || '10.1.1.1' });
+const galleta = (sc, nombre) => (sc.find((c) => c.startsWith(nombre + '=')) || '').split(';')[0];
+async function entrar(perfil) {
+  const a = await api('GET', '/api/auth?login');
+  const state = new URL(a.loc).searchParams.get('state');
+  const code = Buffer.from(JSON.stringify(perfil)).toString('base64url');
+  const b = await api('GET', `/api/auth?code=${code}&state=${state}`, undefined, { cookie: galleta(a.sc, 'rm_state') });
+  const cookie = galleta(b.sc, 'rm_session');
+  if (cookie) await api('GET', '/api/auth', undefined, { cookie });   // como el navegador al abrir /dashboard
+  return Object.assign(b, { cookie });
+}
+const persona = (sub, email, verif = true) => ({ sub, email, name: email.split('@')[0], email_verified: verif });
 
-console.log('\n1. Estado del servidor');
+console.log('\n1. Estado y Auth0');
 let r = await api('GET', '/api/health');
-verif('health responde y usa memoria', r.s === 200 && r.j.storage === 'memory' && r.j.sessionsReady === true, JSON.stringify(r.j));
+verif('health: base de datos y Auth0 listos', r.j.dbOk === true && r.j.auth0 === true && r.j.problemas.length === 0, JSON.stringify(r.j));
 r = await api('GET', '/api/auth');
 verif('sin sesión → 401', r.s === 401);
-r = await api('GET', '/api/inexistente');
-verif('endpoint inexistente → 404', r.s === 404);
+r = await api('GET', '/api/auth?login&signup');
+const u0 = new URL(r.loc);
+verif('?login redirige a Auth0 /authorize con state y callback /api/auth', r.s === 302 && u0.pathname === '/authorize' && u0.searchParams.get('state') && u0.searchParams.get('redirect_uri') === BASE + '/api/auth' && u0.searchParams.get('screen_hint') === 'signup', r.loc);
+r = await api('GET', '/api/auth?code=xx&state=otro', undefined, { cookie: 'rm_state=distinto' });
+verif('state distinto → vuelve a /login con error', r.s === 302 && r.loc.startsWith('/login?error='));
+r = await api('GET', '/api/auth?error=access_denied&error_description=Cancelado');
+verif('error de Auth0 → /login con el mensaje', r.loc === '/login?error=Cancelado');
 
-console.log('\n2. Registro');
-r = await reg('Ana', 'correo-malo', 'Clave1234');
-verif('correo inválido → 400', r.s === 400, r.j && r.j.error);
-r = await reg('Ana', 'ana@acme.co', 'corta1');
-verif('contraseña corta → 400', r.s === 400);
-r = await reg('Ana', 'ana@acme.co', 'sololetrasaqui');
-verif('contraseña sin números → 400', r.s === 400);
-r = await api('POST', '/api/auth', { action: 'register', name: 'Ana', email: 'ana@acme.co', password: 'Clave1234', terms: false });
-verif('sin aceptar términos → 400', r.s === 400);
-r = await reg('Ana Admin', 'Ana@Acme.co');
-verif('primer registro → 201 y es administrador', r.s === 201 && r.j.user.role === 'admin' && r.j.primerAdmin === true, JSON.stringify(r.j));
-verif('la cookie es HttpOnly + SameSite', /HttpOnly/.test(r.setCookieCompleto) && /SameSite=Lax/.test(r.setCookieCompleto), r.setCookieCompleto);
-verif('el correo se guarda en minúsculas', r.j.user.email === 'ana@acme.co');
-verif('la respuesta no filtra el hash', !JSON.stringify(r.j).includes('scrypt'));
-const admin = r.cookie;
-r = await reg('Beto', 'beto@acme.co');
-verif('segundo registro → observador', r.s === 201 && r.j.user.role === 'observer' && r.j.primerAdmin === false);
-const beto = r.cookie;
-r = await reg('Otro', 'ANA@acme.co');
-verif('correo repetido → 409', r.s === 409);
-r = await api('GET', '/api/auth', undefined, { cookie: admin });
-verif('GET /api/auth con cookie devuelve al usuario', r.s === 200 && r.j.user.name === 'Ana Admin' && r.j.canControl === true);
-r = await api('GET', '/api/auth', undefined, { cookie: admin.slice(0, -4) + 'xxxx' });
+console.log('\n2. Empresas separadas');
+const ana = await entrar(persona('auth0|ana', 'ana@minera-a.co'));
+verif('callback → /dashboard con cookie HttpOnly', ana.s === 302 && ana.loc === '/dashboard' && /HttpOnly/.test(ana.sc.join()), ana.loc);
+r = await api('GET', '/api/auth', undefined, { cookie: ana.cookie });
+verif('usuario nuevo aún sin empresa', r.s === 200 && r.j.user.empresaId === null && !r.j.canControl);
+r = await api('GET', '/api/telemetry', undefined, { cookie: ana.cookie });
+verif('sin empresa no ve datos → 409 SIN_EMPRESA', r.s === 409 && r.j.code === 'SIN_EMPRESA');
+r = await api('POST', '/api/auth', { action: 'empresa', nombre: 'Minera A' }, { cookie: ana.cookie });
+verif('registra su empresa → 201', r.s === 201);
+r = await api('GET', '/api/auth', undefined, { cookie: ana.cookie });
+verif('queda como admin de Minera A', r.j.user.role === 'admin' && r.j.user.empresa === 'Minera A' && r.j.canControl);
+r = await api('POST', '/api/auth', { action: 'empresa', nombre: 'Otra' }, { cookie: ana.cookie });
+verif('no puede crear una segunda empresa → 409', r.s === 409);
+
+const beto = await entrar(persona('google-oauth2|beto', 'beto@tuneles-b.co'));
+await api('POST', '/api/auth', { action: 'empresa', nombre: 'Túneles B' }, { cookie: beto.cookie });
+
+r = await api('POST', '/api/robots', { nombre: 'Pyxis A-1' }, { cookie: ana.cookie });
+const KA = r.j.robot.clave, IDA = r.j.robot.id;
+verif('admin A registra robot y recibe la clave una vez', r.s === 201 && /^pyx_/.test(KA));
+r = await api('POST', '/api/robots', { nombre: 'Pyxis B-1' }, { cookie: beto.cookie });
+const KB = r.j.robot.clave, IDB = r.j.robot.id;
+const filas = await sql.query('select clave_hash from robots');
+verif('en la BD solo queda el hash de la clave', !JSON.stringify(filas).includes(KA));
+
+r = await api('POST', '/api/telemetry', { co: 11, ch4: 0.2, o2: 20.9, h2s: 1, mode: 'manual', state: 'NORMAL' }, { clave: KA });
+verif('robot A envía telemetría → 200', r.s === 200 && r.j.overall);
+r = await api('POST', '/api/telemetry', { co: 77, ch4: 0.2, o2: 20.9, h2s: 1, mode: 'manual', state: 'NORMAL' }, { clave: KB });
+verif('robot B envía telemetría (CO alto) → 200', r.s === 200);
+r = await api('POST', '/api/telemetry', { co: 1 }, { clave: 'pyx_falsa' });
+verif('clave inválida → 401', r.s === 401);
+
+r = await api('GET', '/api/telemetry?history=50', undefined, { cookie: ana.cookie });
+verif('Ana ve SOLO su robot (CO 11) y su historial', r.j.robot.id === IDA && r.j.last.co === 11 && r.j.online && r.j.history.length === 1 && r.j.alerts.length === 0, JSON.stringify(r.j).slice(0, 200));
+r = await api('GET', '/api/telemetry', undefined, { cookie: beto.cookie });
+verif('Beto ve SOLO el suyo (CO 77) con su alerta', r.j.robot.id === IDB && r.j.last.co === 77 && r.j.alerts.length >= 1);
+r = await api('GET', `/api/telemetry?robot=${IDA}`, undefined, { cookie: beto.cookie });
+verif('Beto pidiendo el robot de A → no lo obtiene', r.j.robot === null && r.j.last === null);
+r = await api('GET', '/api/robots', undefined, { cookie: beto.cookie });
+verif('lista de robots de Beto solo tiene el suyo', r.j.robots.length === 1 && r.j.robots[0].id === IDB);
+r = await api('POST', '/api/command', { robot: IDA, type: 'estop' }, { cookie: beto.cookie });
+verif('Beto no puede detener el robot de A → 404', r.s === 404);
+r = await api('POST', '/api/robots', { borrar: IDA }, { cookie: beto.cookie });
+verif('Beto no puede borrar el robot de A → 404', r.s === 404);
+
+console.log('\n3. Invitaciones y roles');
+r = await api('POST', '/api/users', { invitar: 'carla@minera-a.co', role: 'operator' }, { cookie: ana.cookie });
+verif('Ana invita a Carla como operadora', r.s === 201);
+await api('POST', '/api/users', { invitar: 'dani@minera-a.co', role: 'observer' }, { cookie: ana.cookie });
+let carla = await entrar(persona('auth0|carla', 'carla@minera-a.co', false));
+r = await api('GET', '/api/auth', undefined, { cookie: carla.cookie });
+verif('correo NO verificado → no se une a la empresa', r.j.user.empresaId === null);
+carla = await entrar(persona('auth0|carla', 'carla@minera-a.co', true));
+r = await api('GET', '/api/auth', undefined, { cookie: carla.cookie });
+verif('correo verificado → entra a Minera A como operadora', r.j.user.empresa === 'Minera A' && r.j.user.role === 'operator');
+r = await api('POST', '/api/users', { invitar: 'carla@minera-a.co', role: 'admin' }, { cookie: beto.cookie });
+verif('Beto no puede invitar a alguien que ya es de otra empresa → 409', r.s === 409);
+const dani = await entrar(persona('auth0|dani', 'dani@minera-a.co'));
+r = await api('GET', '/api/users', undefined, { cookie: ana.cookie });
+verif('Ana ve sus 3 usuarios y no a Beto', r.j.users.length === 3 && !JSON.stringify(r.j).includes('beto'));
+r = await api('GET', '/api/users', undefined, { cookie: carla.cookie });
+verif('operadora no administra usuarios → 403', r.s === 403);
+
+console.log('\n4. Órdenes por robot');
+r = await api('POST', '/api/command', { type: 'drive', lin: 0.3, ang: 0 }, { cookie: carla.cookie });
+verif('Carla conduce su robot', r.s === 200);
+r = await api('GET', '/api/command', undefined, { clave: KA });
+verif('robot A recibe la orden', r.j.cmd && r.j.cmd.lin === 0.3, JSON.stringify(r.j));
+r = await api('GET', '/api/command', undefined, { clave: KB });
+verif('robot B NO recibe la orden de A', r.j.cmd === null);
+r = await api('POST', '/api/command', { type: 'drive', lin: 0.3, ang: 0 }, { cookie: dani.cookie });
+verif('observador no conduce → 403', r.s === 403);
+r = await api('POST', '/api/command', { type: 'estop' }, { cookie: dani.cookie });
+verif('observador sí puede activar la parada de emergencia', r.s === 200);
+r = await api('GET', '/api/command', undefined, { clave: KA });
+const rb = await api('GET', '/api/command', undefined, { clave: KB });
+verif('E-STOP solo afecta al robot A', r.j.estop === true && r.j.cmd === null && rb.j.estop === false);
+r = await api('POST', '/api/command', { type: 'reset' }, { cookie: carla.cookie });
+verif('operadora libera la parada', r.s === 200 && r.j.estop === false);
+r = await api('POST', '/api/command', { type: 'mode', value: 'auto' }, { cookie: beto.cookie });
+verif('Beto (B con CO alto) no puede pasar a automático', r.s === 409);
+r = await api('POST', '/api/command', { type: 'hb' }, { cookie: ana.cookie });
+const hb = await api('GET', '/api/command', undefined, { clave: KA });
+verif('latido del operador llega al robot A', r.s === 200 && hb.j.hbAge !== null && hb.j.hbAge < 2);
+
+console.log('\n5. Permisos de administrador');
+r = await api('POST', '/api/users', { sub: 'auth0|ana', role: 'observer' }, { cookie: ana.cookie });
+verif('no puede quedar la empresa sin admin → 409', r.s === 409);
+r = await api('POST', '/api/users', { sub: 'auth0|ana', role: 'blocked' }, { cookie: beto.cookie });
+verif('Beto no puede cambiar el rol de Ana → 404', r.s === 404);
+r = await api('POST', '/api/users', { sub: 'auth0|carla', role: 'blocked' }, { cookie: ana.cookie });
+const rc = await api('GET', '/api/auth', undefined, { cookie: carla.cookie });
+verif('bloquear a Carla corta su sesión de inmediato', r.s === 200 && rc.s === 401);
+r = await entrar(persona('auth0|carla', 'carla@minera-a.co'));
+verif('Carla bloqueada no puede volver a entrar', r.loc.startsWith('/login?error='));
+r = await api('GET', '/api/users', undefined, { cookie: ana.cookie });
+verif('bitácora de A sin acciones de B', r.j.audit.length > 0 && !JSON.stringify(r.j.audit).includes('Túneles'));
+
+console.log('\n6. Solicitudes de demo y seguridad');
+r = await api('POST', '/api/lead', { name: 'Eva', email: 'eva@x.co', company: 'X', sector: 'mineria', message: 'hola', consent: true });
+verif('landing recibe solicitud de demo', r.s === 201);
+r = await api('GET', '/api/lead', undefined, { cookie: ana.cookie });
+verif('admin de un cliente NO ve las solicitudes → 403', r.s === 403);
+const root = await entrar(persona('auth0|root', 'root@pyxis.co'));
+r = await api('GET', '/api/lead', undefined, { cookie: root.cookie });
+verif('equipo Pyxis-Bot (SUPERADMIN_EMAILS) sí las ve', r.s === 200 && r.j.leads.length === 1);
+r = await api('POST', '/api/auth', { action: 'empresa', nombre: 'X' }, { cookie: ana.cookie, headers: { origin: 'https://sitio-malo.com' } });
+verif('Origin ajeno (CSRF) → 403', r.s === 403);
+r = await api('GET', '/api/auth', undefined, { cookie: ana.cookie.slice(0, -3) + 'xyz' });
 verif('cookie manipulada → 401', r.s === 401);
-let ipsRegistro = 0;
-for (let i = 0; i < 6; i++) { const q = await reg('Spam' + i, `spam${i}@x.co`, 'Clave1234', { ip: '10.9.9.9' }); if (q.s === 429) ipsRegistro++; }
-verif('límite de registros por IP (5/hora)', ipsRegistro >= 1);
+r = await api('POST', '/api/auth', { action: 'logout' }, { cookie: ana.cookie });
+verif('logout borra la cookie y cierra Auth0', /Max-Age=0/.test(r.sc.join()) && r.j.logoutUrl.startsWith(AUTH0 + '/v2/logout'));
 
-console.log('\n3. Inicio de sesión y bloqueo por intentos');
-r = await api('POST', '/api/auth', { action: 'login', email: 'beto@acme.co', password: 'Clave1234' }, { ip: '10.2.2.2' });
-verif('login correcto → 200', r.s === 200 && r.cookie);
-r = await api('POST', '/api/auth', { action: 'login', email: 'noexiste@acme.co', password: 'Clave1234' }, { ip: '10.2.2.3' });
-verif('usuario inexistente → mismo error genérico', r.s === 401 && /incorrectos/.test(r.j.error));
-let ultimo;
-for (let i = 0; i < 8; i++) ultimo = await api('POST', '/api/auth', { action: 'login', email: 'beto@acme.co', password: 'mala' + i }, { ip: '10.3.3.3' });
-verif('los 8 primeros fallos responden 401', ultimo.s === 401, ultimo.s);
-ultimo = await api('POST', '/api/auth', { action: 'login', email: 'beto@acme.co', password: 'mala9' }, { ip: '10.3.3.3' });
-verif('el intento 9 queda bloqueado → 429 con retryAfter', ultimo.s === 429 && ultimo.j.retryAfter > 0, ultimo.s);
-r = await api('POST', '/api/auth', { action: 'login', email: 'beto@acme.co', password: 'Clave1234' }, { ip: '10.3.3.3' });
-verif('con la clave correcta sigue bloqueado desde esa IP', r.s === 429);
-r = await api('POST', '/api/auth', { action: 'login', email: 'beto@acme.co', password: 'Clave1234' }, { ip: '10.4.4.4' });
-verif('otra IP puede entrar (no se bloquea la cuenta globalmente)', r.s === 200);
-r = await api('POST', '/api/auth', { action: 'logout' }, { cookie: admin });
-verif('logout borra la cookie', r.s === 200 && /Max-Age=0/.test(r.setCookieCompleto));
-
-console.log('\n4. Protección CSRF');
-r = await api('POST', '/api/auth', { action: 'login', email: 'ana@acme.co', password: 'Clave1234' }, { headers: { origin: 'https://sitio-malo.com' }, ip: '10.5.5.5' });
-verif('Origin distinto → 403', r.s === 403);
-r = await fetch(BASE + '/api/auth', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{"action":"login"}' });
-verif('cuerpo que no es JSON → 403', r.status === 403);
-r = await api('POST', '/api/auth', 'x', { ip: '10.5.5.6', headers: { 'content-type': 'application/json' } });
-verif('JSON inválido → 400', r.s === 400);
-
-console.log('\n5. Administración de usuarios');
-r = await api('GET', '/api/users', undefined, { cookie: beto });
-verif('observador no ve usuarios → 403', r.s === 403);
-r = await api('GET', '/api/users');
-verif('sin sesión → 401', r.s === 401);
-r = await api('GET', '/api/users', undefined, { cookie: admin });
-verif('el administrador ve la lista (sin hashes)', r.s === 200 && r.j.users.length >= 2 && !JSON.stringify(r.j).includes('scrypt'));
-verif('hay registro de auditoría', Array.isArray(r.j.audit) && r.j.audit.length >= 2);
-r = await api('POST', '/api/users', { email: 'beto@acme.co', role: 'superjefe' }, { cookie: admin });
-verif('rol inválido → 400', r.s === 400);
-r = await api('POST', '/api/users', { email: 'ana@acme.co', role: 'observer' }, { cookie: admin });
-verif('no se puede quitar al último administrador → 409', r.s === 409);
-r = await api('POST', '/api/users', { email: 'beto@acme.co', role: 'operator' }, { cookie: admin });
-verif('admin sube a Beto a operador', r.s === 200 && r.j.user.role === 'operator');
-r = await api('GET', '/api/auth', undefined, { cookie: beto });
-verif('el cambio de rol se aplica de inmediato', r.j.user.role === 'operator' && r.j.canControl === true);
-r = await api('POST', '/api/users', { email: 'beto@acme.co', password: 'Nueva5678' }, { cookie: admin });
-verif('restablecer contraseña → 200', r.s === 200);
-r = await api('GET', '/api/auth', undefined, { cookie: beto });
-verif('restablecer cierra las sesiones abiertas', r.s === 401);
-r = await api('POST', '/api/auth', { action: 'login', email: 'beto@acme.co', password: 'Nueva5678' }, { ip: '10.6.6.6' });
-verif('Beto entra con la contraseña nueva', r.s === 200);
-const betoOp = r.cookie;
-
-console.log('\n6. Telemetría del robot');
-r = await api('POST', '/api/telemetry', { co: 5 });
-verif('sin clave → 401', r.s === 401);
-r = await api('POST', '/api/telemetry', { co: 5 }, { clave: 'incorrecta' });
-verif('clave incorrecta → 401', r.s === 401);
-r = await api('POST', '/api/telemetry', { co: 8, ch4: 0.2, o2: 20.9, h2s: 0.4, temp: 27, hum: 70, pres: 1009, bat: 85, bat_v: 28.1, mode: 'MANUAL', state: 'NORMAL', lidar: [100, 200, 300], arm: [0, 10, -10], grip: 50 }, { clave: CLAVE });
-verif('lectura normal → overall ok', r.s === 200 && r.j.overall === 'ok' && r.j.mode === 'manual' && r.j.estop === false, JSON.stringify(r.j));
-r = await api('GET', '/api/telemetry?history=10');
-verif('leer telemetría sin sesión → 401', r.s === 401);
-r = await api('GET', '/api/telemetry?history=10', undefined, { cookie: betoOp });
-verif('con sesión: última lectura y robot en línea', r.s === 200 && r.j.online === true && r.j.last.co === 8 && r.j.last.lidar.length === 3, JSON.stringify(r.j).slice(0, 200));
-verif('incluye umbrales y control', r.j.thresholds.ch4.peligro === 1.5 && r.j.control.mode === 'manual');
-verif('historial con 1 punto', r.j.history.length === 1);
-r = await api('POST', '/api/telemetry', { co: 'abc', ch4: -5, o2: 150, temp: 1e9, h2s: 0.3 }, { clave: CLAVE });
-verif('valores absurdos se descartan sin romper', r.s === 200);
-r = await api('GET', '/api/telemetry', undefined, { cookie: betoOp });
-verif('lo descartado queda en null', r.j.last.co === null && r.j.last.ch4 === null && r.j.last.o2 === null && r.j.last.temp === null && r.j.last.h2s === 0.3);
-await api('POST', '/api/telemetry', { ch4: 1.6, o2: 20.9, co: 5 }, { clave: CLAVE });
-r = await api('POST', '/api/telemetry', { ch4: 1.7, o2: 20.9, co: 5 }, { clave: CLAVE });
-verif('metano ≥ 1.5 % → overall danger', r.j.overall === 'danger');
-r = await api('GET', '/api/telemetry', undefined, { cookie: betoOp });
-const aletasCh4 = r.j.alerts.filter((a) => a.key === 'ch4' && a.level === 2);
-verif('la alerta se registra una sola vez aunque haya varias lecturas', aletasCh4.length === 1, JSON.stringify(r.j.alerts));
-await api('POST', '/api/telemetry', { o2: 19.0, ch4: 0.2 }, { clave: CLAVE });
-r = await api('POST', '/api/telemetry', { o2: 19.0, ch4: 0.2 }, { clave: CLAVE });
-verif('oxígeno bajo (≤ 19.5 %) → danger', r.j.overall === 'danger');
-await api('POST', '/api/telemetry', { co: 30, o2: 20.9, ch4: 0.2 }, { clave: CLAVE });
-r = await api('POST', '/api/telemetry', { co: 30, o2: 20.9, ch4: 0.2 }, { clave: CLAVE });
-verif('CO entre 25 y 50 → warn', r.j.overall === 'warn');
-r = await api('POST', '/api/telemetry', { co: 8, o2: 20.9, ch4: 0.2, h2s: 0.4, temp: 27, hum: 70, bat: 80 }, { clave: CLAVE });
-verif('todo normal → ok', r.j.overall === 'ok');
-
-console.log('\n7. Órdenes');
-r = await api('POST', '/api/command', { type: 'drive', lin: 0.2, ang: 0 });
-verif('sin sesión → 401', r.s === 401);
-r = await api('POST', '/api/command', { type: 'hb' }, { cookie: betoOp });
-verif('latido → 200', r.s === 200);
-const obs = (await reg('Carla', 'carla@acme.co', 'Clave1234', { ip: '10.7.7.7' })).cookie;
-r = await api('POST', '/api/command', { type: 'drive', lin: 0.2, ang: 0 }, { cookie: obs });
-verif('observador no puede conducir → 403', r.s === 403 && /observador/.test(r.j.error));
-r = await api('POST', '/api/command', { type: 'drive', lin: 0.2, ang: 0 }, { cookie: betoOp });
-verif('operador conduce en manual → 200', r.s === 200 && r.j.lin === 0.2);
-r = await api('POST', '/api/command', { type: 'drive', lin: 99, ang: -99 }, { cookie: betoOp });
-verif('las velocidades se limitan (0.6 m/s, 1.2 rad/s)', r.j.lin === 0.6 && r.j.ang === -1.2);
-r = await api('POST', '/api/command', { type: 'drive', lin: 'x', ang: 0 }, { cookie: betoOp });
-verif('velocidad no numérica → 400', r.s === 400);
-r = await api('POST', '/api/command', { type: 'move', dir: 'F', speed: 0.3 }, { cookie: betoOp });
-verif('move F → lin 0.3', r.s === 200 && r.j.lin === 0.3 && r.j.ang === 0);
-r = await api('GET', '/api/command');
-verif('GET /api/command sin clave ni sesión → 401', r.s === 401);
-r = await api('GET', '/api/command', undefined, { clave: CLAVE });
-verif('el robot recibe la orden de conducción', r.s === 200 && r.j.cmd && r.j.cmd.lin === 0.3 && r.j.mode === 'manual' && r.j.hbAge !== null && r.j.hbAge < 5, JSON.stringify(r.j));
-r = await api('POST', '/api/command', { type: 'arm', v: [10, 200, -200] }, { cookie: betoOp });
-verif('brazo: ángulos limitados a ±90', r.s === 200 && r.j.arm[1] === 90 && r.j.arm[2] === -90);
-r = await api('POST', '/api/command', { type: 'grip', v: 130 }, { cookie: betoOp });
-verif('pinza: limitada a 0-100', r.s === 200 && r.j.grip === 100);
-r = await api('GET', '/api/command', undefined, { clave: CLAVE });
-verif('el robot ve brazo y pinza con su contador', r.j.arm.v[0] === 10 && r.j.arm.seq >= 1 && r.j.grip.v === 100 && r.j.grip.seq >= 1);
-await dormir(2200);
-r = await api('GET', '/api/command', undefined, { clave: CLAVE });
-verif('la orden de conducción caduca a los 2 s', r.j.cmd === null, JSON.stringify(r.j.cmd));
-
-await api('POST', '/api/telemetry', { ch4: 1.8, o2: 20.9 }, { clave: CLAVE });
-r = await api('POST', '/api/command', { type: 'mode', value: 'auto' }, { cookie: betoOp });
-verif('modo automático rechazado con alerta de gas → 409', r.s === 409, JSON.stringify(r.j));
-await api('POST', '/api/telemetry', { ch4: 0.2, o2: 20.9, co: 5, temp: 25 }, { clave: CLAVE });
-r = await api('POST', '/api/command', { type: 'mode', value: 'auto' }, { cookie: betoOp });
-verif('sin alerta pasa a automático', r.s === 200 && r.j.mode === 'auto');
-r = await api('POST', '/api/command', { type: 'drive', lin: 0.2, ang: 0 }, { cookie: betoOp });
-verif('conducir en automático → 409', r.s === 409);
-r = await api('GET', '/api/command', undefined, { clave: CLAVE });
-verif('el robot ve el cambio de modo (contador sube)', r.j.mode === 'auto' && r.j.modeSeq >= 1);
-const seqAntes = r.j.modeSeq;
-
-r = await api('POST', '/api/command', { type: 'estop' }, { cookie: obs });
-verif('cualquier usuario puede pulsar la parada de emergencia', r.s === 200 && r.j.estop === true);
-r = await api('GET', '/api/command', undefined, { clave: CLAVE });
-verif('la parada fuerza modo manual y sube contadores', r.j.estop === true && r.j.mode === 'manual' && r.j.modeSeq > seqAntes && r.j.estopSeq >= 1);
-r = await api('POST', '/api/command', { type: 'drive', lin: 0.2, ang: 0 }, { cookie: betoOp });
-verif('con parada activa no se puede conducir → 423', r.s === 423);
-r = await api('POST', '/api/command', { type: 'reset' }, { cookie: obs });
-verif('un observador no libera la parada → 403', r.s === 403);
-r = await api('POST', '/api/command', { type: 'reset' }, { cookie: betoOp });
-verif('un operador libera la parada', r.s === 200 && r.j.estop === false);
-r = await api('GET', '/api/telemetry', undefined, { cookie: obs });
-verif('el panel ve el estado de control', r.j.control.estop === false && r.j.control.mode === 'manual');
-r = await api('POST', '/api/command', { type: 'volar' }, { cookie: betoOp });
-verif('tipo desconocido → 400', r.s === 400);
-
-console.log('\n8. Cuenta bloqueada');
-r = await api('POST', '/api/users', { email: 'carla@acme.co', role: 'blocked' }, { cookie: admin.length ? (await api('POST', '/api/auth', { action: 'login', email: 'ana@acme.co', password: 'Clave1234' }, { ip: '10.8.8.8' })).cookie : '' });
-verif('admin bloquea a Carla', r.s === 200);
-r = await api('GET', '/api/auth', undefined, { cookie: obs });
-verif('su sesión deja de funcionar al instante', r.s === 401);
-r = await api('POST', '/api/auth', { action: 'login', email: 'carla@acme.co', password: 'Clave1234' }, { ip: '10.8.8.9' });
-verif('no puede iniciar sesión → 403', r.s === 403);
-
-console.log('\n9. Solicitudes de demo');
-const L = { name: 'Luis', email: 'luis@mina.co', company: 'Mina SAS', sector: 'mineria', message: 'Quiero ver una demo', consent: true };
-r = await api('POST', '/api/lead', Object.assign({}, L, { website: 'http://spam' }), { ip: '10.20.0.1' });
-verif('un bot (campo oculto lleno) recibe éxito falso', r.s === 200);
-r = await api('POST', '/api/lead', Object.assign({}, L, { consent: false }), { ip: '10.20.0.2' });
-verif('sin autorización de datos → 400', r.s === 400);
-r = await api('POST', '/api/lead', Object.assign({}, L, { email: 'malo' }), { ip: '10.20.0.3' });
-verif('correo inválido → 400', r.s === 400);
-r = await api('POST', '/api/lead', L, { ip: '10.20.0.4' });
-verif('solicitud válida → 201', r.s === 201);
-let l429 = 0;
-for (let i = 0; i < 6; i++) { const q = await api('POST', '/api/lead', L, { ip: '10.20.0.9' }); if (q.s === 429) l429++; }
-verif('límite por IP (5/hora)', l429 >= 1);
-r = await api('GET', '/api/lead', undefined, { cookie: betoOp });
-verif('un operador no lee las solicitudes → 403', r.s === 403);
-const adm2 = (await api('POST', '/api/auth', { action: 'login', email: 'ana@acme.co', password: 'Clave1234' }, { ip: '10.8.8.10' })).cookie;
-r = await api('GET', '/api/lead', undefined, { cookie: adm2 });
-verif('el admin lee solicitudes (el bot no quedó guardado)', r.s === 200 && r.j.leads.length >= 1 && !r.j.leads.some((x) => x.name === 'Luis' && x.message === 'spam'));
-
-console.log(`\n${ok} de ${ok + mal} comprobaciones correctas`);
-srv.close();
+console.log(`\n${ok} correctas, ${mal} fallidas\n`);
+srv.close(); auth0.close();
 process.exit(mal ? 1 : 0);

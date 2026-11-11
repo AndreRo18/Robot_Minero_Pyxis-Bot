@@ -2,25 +2,24 @@
 /** GET /api/health: diagnóstico. Nunca muestra valores secretos, solo si están configurados. */
 const H = require('../lib/http');
 const A = require('../lib/auth');
-const store = require('../lib/store');
+const db = require('../lib/db');
 
 module.exports = H.endpoint(async (req, res) => {
-  let redisOk = null;
-  if (store.isRemote) {
-    try { redisOk = (await store.cmd('PING')) === 'PONG'; } catch { redisOk = false; }
+  let dbOk = null;
+  if (db.configurada()) {
+    try { dbOk = (await db.uno('select 1 as ok')).ok === 1; } catch (e) { console.error('[health]', e.message); dbOk = false; }
   }
   H.send(res, 200, {
     ok: true,
-    storage: store.isRemote ? 'redis' : 'memory',
-    redisOk,
-    robotKey: Boolean(process.env.ROBOT_API_KEY),
-    authSecret: Boolean(process.env.AUTH_SECRET),
-    sessionsReady: A.secretoListo(),
+    database: db.configurada() ? 'neon' : 'sin configurar',
+    dbOk,
+    auth0: A.auth0Listo(),
+    authSecret: A.secretoListo(),
     problemas: [
-      ...(H.EN_VERCEL && !store.isRemote ? ['Falta conectar Upstash Redis (Vercel → Storage). Sin esto el inicio de sesión no funciona.'] : []),
-      ...(store.isRemote && redisOk === false ? ['Redis está configurado pero no responde. Revisa las variables KV_REST_API_URL / KV_REST_API_TOKEN.'] : []),
+      ...(!db.configurada() ? ['Falta DATABASE_URL: conecta Neon en Vercel → Storage (o Integrations) y vuelve a desplegar.'] : []),
+      ...(dbOk === false ? ['Neon está configurado pero no responde. Revisa DATABASE_URL.'] : []),
+      ...(!A.auth0Listo() ? ['Faltan AUTH0_DOMAIN, AUTH0_CLIENT_ID o AUTH0_CLIENT_SECRET.'] : []),
       ...(!A.secretoListo() ? ['Falta la variable AUTH_SECRET.'] : []),
-      ...(!process.env.ROBOT_API_KEY ? ['Falta la variable ROBOT_API_KEY (el robot no podrá enviar datos).'] : []),
     ],
     time: new Date().toISOString(),
   });

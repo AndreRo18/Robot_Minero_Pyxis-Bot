@@ -1,127 +1,95 @@
 'use strict';
 /**
- * Usuarios, contraseñas, sesiones y roles.
+ * Sesión con Auth0 + permisos por empresa.
  *
- *  - Contraseñas: scrypt con sal aleatoria (nunca se guardan en texto plano).
- *  - Sesión: cookie HttpOnly firmada con HMAC-SHA256 (AUTH_SECRET), dura 7 días.
- *  - Cada petición vuelve a leer al usuario: si lo bloquean o le cambian el rol, se aplica de inmediato.
- *  - Roles: admin (todo) · operator (ve y controla) · observer (solo ve) · blocked (sin acceso).
+ *  - Auth0 (Universal Login) verifica la identidad. Aquí NO se guardan contraseñas.
+ *  - Tras volver de Auth0 se crea una cookie HttpOnly firmada (AUTH_SECRET) con el "sub" del usuario.
+ *  - Cada petición relee al usuario en Neon: si lo bloquean o le cambian el rol, se aplica de inmediato.
+ *  - Cada usuario pertenece a UNA empresa y solo ve sus robots, usuarios y datos.
+ *  - Roles: admin (todo en su empresa) · operator (ve y controla) · observer (solo ve) · blocked.
  */
 const crypto = require('crypto');
-const { promisify } = require('util');
-const store = require('./store');
-const http = require('./http');
+const H = require('./http');
+const db = require('./db');
 
-const scrypt = promisify(crypto.scrypt);
 const ROLES = ['admin', 'operator', 'observer', 'blocked'];
 const COOKIE = 'rm_session';
-const DURACION_S = 7 * 24 * 3600;
-const N = 16384, R = 8, P = 1;
+const DURACION_S = 12 * 3600;    // un turno
 
-// ---------- Contraseñas ----------
-async function hashPassword(pw) {
-  const salt = crypto.randomBytes(16);
-  const key = await scrypt(pw, salt, 64, { N, r: R, p: P, maxmem: 64 * 1024 * 1024 });
-  return ['scrypt', N, R, P, salt.toString('base64'), key.toString('base64')].join('$');
-}
-async function verifyPassword(pw, guardado) {
-  const t = String(guardado || '').split('$');
-  if (t.length !== 6 || t[0] !== 'scrypt') return false;
-  const esperado = Buffer.from(t[5], 'base64');
-  const key = await scrypt(pw, Buffer.from(t[4], 'base64'), esperado.length, { N: +t[1], r: +t[2], p: +t[3], maxmem: 64 * 1024 * 1024 });
-  return crypto.timingSafeEqual(key, esperado);
-}
-let dummy;   // para que "usuario inexistente" tarde lo mismo que "contraseña incorrecta"
-const hashFalso = async () => dummy || (dummy = await hashPassword('no-existe-' + crypto.randomBytes(8).toString('hex')));
+const D = (process.env.AUTH0_DOMAIN || '').replace(/\/$/, '');
+const AUTH0 = D && !/^https?:\/\//.test(D) ? 'https://' + D : D;
+const CLIENT_ID = process.env.AUTH0_CLIENT_ID || '';
+const CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET || '';
+const auth0Listo = () => Boolean(AUTH0 && CLIENT_ID && CLIENT_SECRET);
+const SUPER = (process.env.SUPERADMIN_EMAILS || '').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean);
 
-function validarPassword(pw) {
-  if (typeof pw !== 'string' || pw.length < 8) return 'La contraseña debe tener al menos 8 caracteres';
-  if (pw.length > 128) return 'La contraseña es demasiado larga';
-  if (!/[A-Za-z]/.test(pw) || !/[0-9]/.test(pw)) return 'La contraseña debe combinar letras y números';
-  return null;
-}
 const normalizarEmail = (e) => String(e || '').trim().toLowerCase();
 const emailValido = (e) => e.length <= 120 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
 const limpiar = (s, max) => String(s || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, max);
+const puedeControlar = (rol) => rol === 'admin' || rol === 'operator';
 
-// ---------- Sesión ----------
-function secreto() {
-  if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
-  return http.EN_VERCEL ? '' : 'secreto-solo-para-desarrollo-local';
-}
+// ---------- Cookie de sesión firmada ----------
+const secreto = () => process.env.AUTH_SECRET || (H.EN_VERCEL ? '' : 'secreto-solo-para-desarrollo-local');
 const secretoListo = () => Boolean(secreto());
-const b64 = (b) => Buffer.from(b).toString('base64url');
+const hmac = (s) => crypto.createHmac('sha256', secreto()).update(s).digest('base64url');
 
 function firmar(payload) {
-  const cuerpo = b64(JSON.stringify(payload));
-  const firma = crypto.createHmac('sha256', secreto()).update(cuerpo).digest('base64url');
-  return cuerpo + '.' + firma;
+  const cuerpo = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return cuerpo + '.' + hmac(cuerpo);
 }
 function leerToken(token) {
   if (!token || !secretoListo()) return null;
   const [cuerpo, firma] = String(token).split('.');
-  if (!cuerpo || !firma) return null;
-  const esperada = crypto.createHmac('sha256', secreto()).update(cuerpo).digest('base64url');
-  if (!http.iguales(firma, esperada)) return null;
+  if (!cuerpo || !firma || !H.iguales(firma, hmac(cuerpo))) return null;
   try {
     const p = JSON.parse(Buffer.from(cuerpo, 'base64url').toString('utf8'));
     return p && p.exp > Date.now() / 1000 ? p : null;
   } catch { return null; }
 }
+const cookie = (req, nombre, valor, maxAge) =>
+  `${nombre}=${valor}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${H.esHttps(req) ? '; Secure' : ''}`;
+const cookieSesion = (req, sub) => cookie(req, COOKIE, firmar({ sub, exp: Math.floor(Date.now() / 1000) + DURACION_S }), DURACION_S);
+const cookieBorrar = (req) => cookie(req, COOKIE, '', 0);
 
-function cookieSesion(req, user) {
-  const token = firmar({ sub: user.email, sv: user.sv || 1, exp: Math.floor(Date.now() / 1000) + DURACION_S });
-  return `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${DURACION_S}${http.esHttps(req) ? '; Secure' : ''}`;
-}
-const cookieBorrar = (req) => `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${http.esHttps(req) ? '; Secure' : ''}`;
-
-// ---------- Usuarios ----------
-async function buscarUsuario(email) {
-  return store.parse(await store.cmd('HGET', 'users', email));
-}
-const puedeControlar = (rol) => rol === 'admin' || rol === 'operator';
-const publico = (u) => ({
-  email: u.email, name: u.name, company: u.company, role: u.role,
-  canControl: puedeControlar(u.role), createdAt: u.createdAt, lastLogin: u.lastLogin || null,
-});
-
-/** Usuario de la petición (o null si no hay sesión válida). */
+// ---------- Usuario actual ----------
 async function usuarioActual(req) {
-  const p = leerToken(http.cookies(req)[COOKIE]);
+  const p = leerToken(H.cookies(req)[COOKIE]);
   if (!p) return null;
-  const u = await buscarUsuario(p.sub);
-  if (!u || u.role === 'blocked' || (u.sv || 1) !== p.sv) return null;
-  return publico(u);
+  let u = await db.uno(
+    `select u.sub, u.email, u.nombre, u.verificado, u.rol, u.empresa_id, e.nombre empresa
+       from usuarios u left join empresas e on e.id = u.empresa_id where u.sub = $1`, [p.sub]);
+  if (!u || u.rol === 'blocked') return null;
+  if (u.empresa_id == null && u.verificado && u.email) {          // ¿lo invitaron a una empresa?
+    const inv = await db.uno('delete from invitaciones where email = $1 returning empresa_id, rol', [u.email]);
+    if (inv) {
+      await db.q('update usuarios set empresa_id = $2, rol = $3 where sub = $1', [u.sub, inv.empresa_id, inv.rol]);
+      await auditar(inv.empresa_id, u.email, 'se unió por invitación', inv.rol);
+      return usuarioActual(req);
+    }
+  }
+  return {
+    sub: u.sub, email: u.email, name: u.nombre || u.email, role: u.rol,
+    empresaId: u.empresa_id, empresa: u.empresa || null,
+    canControl: u.empresa_id != null && puedeControlar(u.rol),
+    superadmin: Boolean(u.verificado && SUPER.includes(u.email)),
+  };
 }
 
-/** Exige sesión (y opcionalmente un permiso). Si falla ya respondió y devuelve null. */
-async function exigir(req, res, { control = false, admin = false } = {}) {
+/** Exige sesión con empresa (y opcionalmente un permiso). Si falla ya respondió y devuelve null. */
+async function exigir(req, res, { control = false, admin = false, superadmin = false } = {}) {
   const u = await usuarioActual(req);
-  if (!u) { http.fail(res, 401, 'Inicia sesión para continuar'); return null; }
-  if (admin && u.role !== 'admin') { http.fail(res, 403, 'Solo el administrador puede hacer esto'); return null; }
-  if (control && !u.canControl) { http.fail(res, 403, 'Tu rol es observador: solo lectura. Pide al administrador el rol de operador'); return null; }
+  if (!u) { H.fail(res, 401, 'Inicia sesión para continuar'); return null; }
+  if (superadmin) { if (!u.superadmin) { H.fail(res, 403, 'No autorizado'); return null; } return u; }
+  if (u.empresaId == null) { H.fail(res, 409, 'Primero registra tu empresa', { code: 'SIN_EMPRESA' }); return null; }
+  if (admin && u.role !== 'admin') { H.fail(res, 403, 'Solo el administrador de la empresa puede hacer esto'); return null; }
+  if (control && !u.canControl) { H.fail(res, 403, 'Tu rol es observador: solo lectura. Pide al administrador el rol de operador'); return null; }
   return u;
 }
 
-/** Limitador: cuenta intentos en una ventana. Devuelve {ok, retryAfter}. */
-async function contar(clave, max, ventanaS) {
-  const [n] = await store.pipeline([['INCR', clave]]);
-  if (n === 1) await store.cmd('EXPIRE', clave, ventanaS);
-  if (n > max) {
-    const ttl = await store.cmd('TTL', clave);
-    return { ok: false, retryAfter: ttl > 0 ? ttl : ventanaS };
-  }
-  return { ok: true, n };
-}
-
-async function auditar(quien, accion, detalle) {
-  await store.pipeline([
-    ['LPUSH', 'audit', JSON.stringify({ t: Date.now(), quien, accion, detalle: detalle || '' })],
-    ['LTRIM', 'audit', 0, 499],
-  ]);
-}
+const auditar = (empresaId, quien, accion, detalle) =>
+  db.q('insert into auditoria (empresa_id, quien, accion, detalle) values ($1, $2, $3, $4)', [empresaId, quien, accion, detalle || '']);
 
 module.exports = {
-  ROLES, hashPassword, verifyPassword, hashFalso, validarPassword, normalizarEmail, emailValido, limpiar,
-  secretoListo, cookieSesion, cookieBorrar, buscarUsuario, publico, puedeControlar, usuarioActual, exigir, contar, auditar,
+  ROLES, AUTH0, CLIENT_ID, CLIENT_SECRET, auth0Listo, normalizarEmail, emailValido, limpiar, puedeControlar,
+  secretoListo, cookie, cookieSesion, cookieBorrar, usuarioActual, exigir, auditar,
 };

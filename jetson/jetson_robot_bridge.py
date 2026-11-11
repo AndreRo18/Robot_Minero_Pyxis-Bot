@@ -78,7 +78,7 @@ class JetsonRobotBridge(Node):
         self.rth_after = p('rth_after_s', 5.0).value             # el diagrama: "¿> 5 s?"
         # Pasarela a la nube (panel web en Vercel). Vacío = desactivada.
         self.cloud_url = p('cloud_url', '').value                # p. ej. https://tu-proyecto.vercel.app
-        self.cloud_key = p('cloud_key', '').value                # = ROBOT_API_KEY del servidor
+        self.cloud_key = p('cloud_key', '').value                # = clave pyx_... del robot (panel → Administración → Robots)
         self.cloud_push = p('cloud_push_s', 1.0).value
         self.cloud_poll = p('cloud_poll_s', 0.25).value
 

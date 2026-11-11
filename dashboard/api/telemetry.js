@@ -4,13 +4,14 @@
  *      {co, ch4, o2, h2s, temp, hum, pres, bat, bat_v, speed, rssi, heading, inc, mode, state, alert,
  *       x, y, points, arm:[b,h,c,m], grip, lidar:[cm × 72]}
  *      → {ok, overall, mode, estop}
- * GET  /api/telemetry?history=300   (sesión) última lectura, historial, alertas y umbrales
+ * GET  /api/telemetry?history=300[&robot=id]   (sesión) última lectura, historial, alertas y umbrales
+ *      Solo de robots de la empresa del usuario.
  */
 const H = require('../lib/http');
 const A = require('../lib/auth');
 const S = require('../lib/safety');
 const C = require('../lib/control');
-const store = require('../lib/store');
+const db = require('../lib/db');
 
 const HIST_MAX = 3600;     // 1 hora a 1 lectura por segundo
 const ESTADOS = ['NORMAL', 'RTH', 'ESPERA'];
@@ -39,20 +40,17 @@ function limpiarLectura(b) {
   return r;
 }
 
-async function recibir(req, res) {
+async function recibir(req, res, robot) {
   const b = await H.readBody(req);
   const lect = limpiarLectura(b);
   const ev = S.evaluar(lect);
   const ahora = Date.now();
-
-  const [previoRaw, ctl] = await store.pipeline([['GET', 'tel:last'], ['GET', 'ctl']]);
-  const previo = store.parse(previoRaw);
+  const previo = robot.ultima;
   lect.ts = ahora;
   lect.levels = ev.niveles;
   lect.overall = ev.general;
 
   // Alertas: solo cuando un nivel empeora (no una por cada lectura)
-  const cmds = [['SET', 'tel:last', JSON.stringify(lect)]];
   const nuevas = [];
   for (const [k, nv] of Object.entries(ev.niveles)) {
     const antes = previo && previo.levels ? previo.levels[k] || 0 : 0;
@@ -63,12 +61,19 @@ async function recibir(req, res) {
   }
   const hist = { t: ahora };
   for (const k of ['co', 'ch4', 'o2', 'h2s', 'temp', 'hum', 'pres', 'bat', 'bat_v']) if (lect[k] !== null) hist[k] = lect[k];
-  cmds.push(['LPUSH', 'tel:hist', JSON.stringify(hist)], ['LTRIM', 'tel:hist', 0, HIST_MAX - 1]);
-  for (const a of nuevas) cmds.push(['LPUSH', 'alerts', JSON.stringify(a)]);
-  if (nuevas.length) cmds.push(['LTRIM', 'alerts', 0, 199]);
-  await store.pipeline(cmds);
 
-  const st = Object.assign({ mode: 'manual', estop: false }, store.parse(ctl));
+  const ops = [
+    db.q('update robots set ultima = $2 where id = $1', [robot.id, JSON.stringify(lect)]),
+    db.q('insert into lecturas (robot_id, d) values ($1, $2)', [robot.id, JSON.stringify(hist)]),
+    ...nuevas.map((a) => db.q('insert into alertas (robot_id, d) values ($1, $2)', [robot.id, JSON.stringify(a)])),
+  ];
+  if (Math.random() < 0.01) {     // limpieza ocasional: 7 días de lecturas, 90 de alertas
+    ops.push(db.q(`delete from lecturas where robot_id = $1 and t < now() - interval '7 days'`, [robot.id]));
+    ops.push(db.q(`delete from alertas where robot_id = $1 and t < now() - interval '90 days'`, [robot.id]));
+  }
+  await Promise.all(ops);
+
+  const st = C.estado(robot);
   return H.send(res, 200, { ok: true, overall: ev.general, mode: st.mode, estop: st.estop });
 }
 
@@ -76,20 +81,24 @@ async function leer(req, res) {
   const u = await A.exigir(req, res);
   if (!u) return;
   const q = H.consulta(req);
+  const robot = await C.deUsuario(u, q.robot);
+  if (!robot) return H.send(res, 200, { ok: true, robot: null, online: false, last: null, alerts: [], thresholds: S.LIMITES, control: { mode: 'manual', estop: false }, serverTime: Date.now() });
   const n = Math.max(0, Math.min(HIST_MAX, parseInt(q.history, 10) || 0));
-  const cmds = [['GET', 'tel:last'], ['LRANGE', 'alerts', 0, 29], ['GET', 'ctl']];
-  if (n) cmds.push(['LRANGE', 'tel:hist', 0, n - 1]);
-  const [last, alertas, ctl, hist] = await store.pipeline(cmds);
-  const ultimo = store.parse(last);
+  const [alertas, hist] = await Promise.all([
+    db.q('select d from alertas where robot_id = $1 order by t desc limit 30', [robot.id]),
+    n ? db.q('select d from lecturas where robot_id = $1 order by t desc limit $2', [robot.id, n]) : null,
+  ]);
+  const ultimo = robot.ultima;
   const edad = ultimo ? Math.round((Date.now() - ultimo.ts) / 100) / 10 : null;
-  const st = Object.assign({ mode: 'manual', estop: false, estopBy: null }, store.parse(ctl));
+  const st = C.estado(robot);
   return H.send(res, 200, {
     ok: true,
+    robot: { id: robot.id, nombre: robot.nombre },
     online: edad !== null && edad < 10,
     age: edad,
     last: ultimo,
-    history: n ? hist.map(store.parse).filter(Boolean).reverse() : undefined,
-    alerts: alertas.map(store.parse).filter(Boolean),
+    history: hist ? hist.map((x) => x.d).reverse() : undefined,
+    alerts: alertas.map((x) => x.d),
     thresholds: S.LIMITES,
     control: { mode: st.mode, estop: st.estop, estopBy: st.estopBy },
     serverTime: Date.now(),
@@ -98,8 +107,9 @@ async function leer(req, res) {
 
 module.exports = H.endpoint(async (req, res) => {
   if (req.method === 'POST') {
-    if (!H.esRobot(req)) return H.fail(res, 401, 'Clave del robot incorrecta o no configurada (ROBOT_API_KEY)');
-    return recibir(req, res);
+    const robot = await C.porClave(req);
+    if (!robot) return H.fail(res, 401, 'Clave del robot incorrecta (créala en el panel → Administración → Robots)');
+    return recibir(req, res, robot);
   }
   if (req.method === 'GET') return leer(req, res);
   return H.fail(res, 405, 'Método no permitido');

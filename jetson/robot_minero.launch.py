@@ -19,7 +19,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     aqui = os.path.dirname(os.path.realpath(__file__))
-    # Pasarela a la nube (opcional): export CLOUD_URL=https://tu-proyecto.vercel.app CLOUD_KEY=<ROBOT_API_KEY>
+    # Pasarela a la nube (opcional): export CLOUD_URL=https://tu-proyecto.vercel.app CLOUD_KEY=<clave pyx_... del robot, panel → Administración → Robots>
     nube = []
     if os.environ.get('CLOUD_URL') and os.environ.get('CLOUD_KEY'):
         nube = ['--ros-args', '-p', 'cloud_url:=' + os.environ['CLOUD_URL'], '-p', 'cloud_key:=' + os.environ['CLOUD_KEY']]

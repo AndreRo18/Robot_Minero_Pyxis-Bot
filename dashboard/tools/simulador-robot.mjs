@@ -1,8 +1,9 @@
 // Simula al robot (la pasarela de la Jetson) contra el servidor: envía telemetría y obedece las órdenes.
-//   node tools/simulador-robot.mjs [URL] [CLAVE]      (por defecto http://localhost:3000 y dev-robot-key)
+//   node tools/simulador-robot.mjs URL CLAVE      (la CLAVE se crea en el panel → Administración → Robots)
 //   escenario de gas: node tools/simulador-robot.mjs URL CLAVE gas
 const URL_ = (process.argv[2] || 'http://localhost:3000').replace(/\/$/, '');
-const KEY = process.argv[3] || process.env.ROBOT_API_KEY || 'dev-robot-key';
+const KEY = process.argv[3] || process.env.ROBOT_API_KEY;
+if (!KEY) { console.log('Falta la clave del robot: créala en el panel → Administración → Robots'); process.exit(1); }
 const ESC = process.argv[4] || 'normal';
 const H = { 'X-Api-Key': KEY, 'Content-Type': 'application/json' };
 let x = 0, y = 0, th = 0, bat = 92, modo = 'manual', arm = [0, 0, 0], grip = 50, lin = 0, ang = 0;

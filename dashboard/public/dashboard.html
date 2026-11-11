@@ -21,12 +21,13 @@
   <div class="barra-der">
   <button type="button" class="tema-btn" data-tema-toggle aria-pressed="false" aria-label="Cambiar a modo oscuro" title="Modo oscuro"><svg class="i-luna" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></svg><svg class="i-sol" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg></button>
   <div class="u-der" id="usuario" hidden>
+    <select id="selRobot" class="peq-in" aria-label="Robot" hidden></select>
     <span id="uNombre"></span><span class="chip-rol" id="uRol"></span><span class="chip-rol solo" id="soloLectura" hidden>Solo lectura</span>
     <button type="button" class="btn-sec" id="btnSalir">Cerrar sesión</button>
   </div>
   </div>
 </nav>
-<div class="bn-demo" id="bannerDemo" hidden role="note"><span><b>Modo demostración:</b> todos los datos son simulados. Prueba los escenarios al final de la tarjeta Ambiente y energía.</span><a href="/login?modo=registro">Crear mi cuenta</a></div>
+<div class="bn-demo" id="bannerDemo" hidden role="note"><span><b>Modo demostración:</b> todos los datos son simulados. Prueba los escenarios al final de la tarjeta Ambiente y energía.</span><a href="/api/auth?login&amp;signup">Crear mi cuenta</a></div>
 <header id="cabecera">
   <a class="marca" href="/" aria-label="Pyxis-Bot, ir al sitio"><svg class="logo-pyx" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="18" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M20 20 L33 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="20" cy="20" r="4" fill="currentColor"/></svg><span>Pyxis-Bot<small>Panel de operación</small></span></a>
   <div class="modo">
@@ -199,8 +200,12 @@
 <section class="admin" id="admin" hidden aria-label="Administración">
   <h2>Administración</h2>
   <div class="admin-g">
-    <div><h3>Usuarios y permisos</h3><div class="tabla-w"><table id="tUsuarios"></table></div></div>
-    <div><h3>Solicitudes de demo recibidas</h3><div class="tabla-w"><table id="tLeads"></table></div></div>
+    <div><h3>Robots de la empresa</h3><div class="tabla-w"><table id="tRobots"></table></div>
+      <form id="fRobot" class="u-der"><input class="peq-in" name="nombre" placeholder="Nombre del robot" maxlength="60" required aria-label="Nombre del robot"> <button class="btn-sec peq">Registrar robot</button></form>
+      <p id="claveNueva" class="msg ok" hidden></p></div>
+    <div><h3>Usuarios y permisos</h3><div class="tabla-w"><table id="tUsuarios"></table></div>
+      <form id="fInvitar" class="u-der"><input class="peq-in" name="email" type="email" placeholder="correo@empresa.com" required aria-label="Correo a invitar"> <select name="role" aria-label="Rol"><option value="operator">Operador</option><option value="observer">Observador</option><option value="admin">Administrador</option></select> <button class="btn-sec peq">Invitar</button></form></div>
+    <div id="bLeads" hidden><h3>Solicitudes de demo recibidas</h3><div class="tabla-w"><table id="tLeads"></table></div></div>
     <div><h3>Registro de actividad</h3><ol id="lAudit"></ol></div>
   </div>
 </section>

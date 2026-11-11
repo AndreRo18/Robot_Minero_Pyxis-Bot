@@ -75,22 +75,23 @@ function iguales(a, b) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-/** Clave del robot. En Vercel es obligatorio configurarla; en local se usa una clave de desarrollo. */
-function claveRobot() {
-  return process.env.ROBOT_API_KEY || (EN_VERCEL ? '' : 'dev-robot-key');
+/** Redirección 302 (con cabeceras extra, p. ej. Set-Cookie). */
+function redirigir(res, url, extra) {
+  res.statusCode = 302;
+  res.setHeader('Location', url);
+  res.setHeader('Cache-Control', 'no-store');
+  if (extra) for (const [k, v] of Object.entries(extra)) res.setHeader(k, v);
+  res.end();
 }
-function esRobot(req) {
-  const k = claveRobot();
-  const dada = req.headers['x-api-key'];
-  return Boolean(k && dada && iguales(dada, k));
-}
+
+const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
 /** Envuelve un endpoint: captura errores y los responde como JSON. */
 function endpoint(fn) {
   return async (req, res) => {
     try { await fn(req, res); }
     catch (e) {
-      if (e instanceof HttpError) return fail(res, e.status, e.message);
+      if (e instanceof HttpError || e.status === 503) return fail(res, e.status, e.message);
       console.error('[api]', req.url, e);
       return fail(res, 500, 'Error interno del servidor');
     }
@@ -103,4 +104,4 @@ const num = (v, min, max) => {
   return Number.isFinite(n) && n >= min && n <= max ? n : null;
 };
 
-module.exports = { send, fail, HttpError, readBody, consulta, cookies, ip, esHttps, solicitudSegura, iguales, claveRobot, esRobot, endpoint, num, EN_VERCEL };
+module.exports = { send, fail, HttpError, readBody, consulta, cookies, ip, esHttps, solicitudSegura, iguales, redirigir, sha256, endpoint, num, EN_VERCEL };

@@ -34,24 +34,23 @@
   <main id="contenido">
     <div class="tema-flot"><button type="button" class="tema-btn" data-tema-toggle aria-pressed="false" aria-label="Cambiar a modo oscuro" title="Modo oscuro"><svg class="i-luna" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></svg><svg class="i-sol" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg></button></div>
     <div class="caja">
-      <div class="tabs" role="tablist" aria-label="Acceso">
-        <button type="button" role="tab" id="tabEntrar" aria-selected="true" aria-controls="form">Iniciar sesión</button>
-        <button type="button" role="tab" id="tabRegistro" aria-selected="false" aria-controls="form">Crear cuenta</button>
-      </div>
-      <form class="form-caja" id="form" novalidate autocomplete="on">
+      <div class="form-caja">
         <div id="mensaje" role="alert" aria-live="assertive" hidden></div>
-        <label class="campo" id="fNombre" hidden><span>Nombre completo</span><input id="nombre" name="name" autocomplete="name" maxlength="60"></label>
-        <label class="campo" id="fEmpresa" hidden><span>Empresa (opcional)</span><input id="empresa" name="company" autocomplete="organization" maxlength="80"></label>
-        <label class="campo"><span>Correo electrónico</span><input id="correo" name="email" type="email" autocomplete="email" required maxlength="120" inputmode="email"></label>
-        <div class="campo">
-          <label for="clave"><span style="display:block;font:700 16px var(--titulo);letter-spacing:.05em;text-transform:uppercase;margin-bottom:5px;color:var(--apagado)">Contraseña</span></label>
-          <div class="ojo"><input id="clave" name="password" type="password" autocomplete="current-password" required maxlength="200" style="width:100%;padding:12px 14px;border:2px solid var(--borde);border-radius:8px;font:500 17px var(--cuerpo)"><button type="button" id="ver" aria-pressed="false">Mostrar</button></div>
-          <div id="fFuerza" hidden><div class="fuerza" aria-hidden="true"><i id="barra"></i></div><p class="ayuda" id="ayudaClave">Mínimo 8 caracteres, con letras y números.</p></div>
+        <div id="pasoEntrar">
+          <h2 style="margin-top:0">Accede al centro de control</h2>
+          <a class="btn" href="/api/auth?login" style="width:100%">Iniciar sesión</a>
+          <a class="btn sec" href="/api/auth?login&amp;signup" style="width:100%;margin-top:12px">Crear cuenta</a>
+          <p class="ayuda" style="margin-top:14px">Acceso seguro con Auth0. Si tu empresa te invitó, entra con ese mismo correo y verifícalo.</p>
         </div>
-        <label class="marcar" id="fTerminos" hidden><input type="checkbox" id="terminos"><span>Acepto los <a href="/terminos" target="_blank" rel="noopener">términos de uso</a> y la <a href="/privacidad" target="_blank" rel="noopener">política de privacidad</a>.</span></label>
-        <button class="btn" id="enviar" type="submit" style="width:100%">Entrar al panel</button>
-        <p class="ayuda" id="nota" style="margin-top:14px"></p>
-      </form>
+        <form id="pasoEmpresa" hidden novalidate>
+          <h2 style="margin-top:0">Registra tu empresa</h2>
+          <p class="ayuda">Hola <b id="quien"></b>. Tu cuenta aún no pertenece a ninguna empresa. Si te invitaron, verifica tu correo y <a href="/login" id="reintentar">vuelve a intentarlo</a>; si eres el primero de tu empresa, regístrala: quedarás como administrador.</p>
+          <label class="campo"><span>Nombre de la empresa</span><input id="empresa" autocomplete="organization" maxlength="80" required></label>
+          <label class="marcar"><input type="checkbox" id="terminos"><span>Acepto los <a href="/terminos" target="_blank" rel="noopener">términos de uso</a> y la <a href="/privacidad" target="_blank" rel="noopener">política de privacidad</a>.</span></label>
+          <button class="btn" type="submit" style="width:100%">Registrar empresa</button>
+          <button class="btn sec" type="button" id="salir" style="width:100%;margin-top:12px">Cerrar sesión</button>
+        </form>
+      </div>
     </div>
   </main>
 </div>

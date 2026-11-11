@@ -1,3 +1,5 @@
+> ⚠️ **Actualizado (v2):** el inicio de sesión ahora es con **Auth0**, la base de datos es **Neon** (ya no Upstash Redis) y el panel es **multiempresa**. Para configurar sigue la sección *Configurar* del `README.md`; las partes de esta guía sobre Redis, `ROBOT_API_KEY` y registro con contraseña ya no aplican.
+
 # Guía paso a paso · Robot Minero Pyxis-Bot en Vercel
 
 Esta guía te lleva desde cero hasta tener **la página comercial (landing con SEO)**, la **pantalla de inicio de sesión y registro**, el **dashboard de control** y la **API** funcionando en Internet, con el **ESP32** enviando datos reales.

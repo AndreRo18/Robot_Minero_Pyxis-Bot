@@ -11,7 +11,7 @@ const HOST = _q.get("host") || "";                                   // IP de la
 const DEMO = _q.has("demo") || (_q.has("host") && !HOST);            // ?host= vacío también es demo (compatibilidad)
 const LOCAL = !DEMO && !!HOST;
 const NUBE = !DEMO && !LOCAL;
-let USER = null, SOLO_LECTURA = false;
+let USER = null, SOLO_LECTURA = false, ROBOT = null;   // ROBOT: id del robot elegido (empresa con varios)
 const CONFIG = {
   rosbridge: LOCAL ? `ws://${HOST}:9090` : "",
   camaras: {   // web_video_server (solo modo local)
@@ -671,7 +671,7 @@ function toast(msg, tipo){
 
 async function enviarNube(cuerpo){
   try{
-    const r = await fetch("/api/command", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body:JSON.stringify(cuerpo)});
+    const r = await fetch("/api/command", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body:JSON.stringify(Object.assign({robot:ROBOT}, cuerpo))});
     if(r.status===401){ login(); return null; }
     const j = await r.json().catch(()=>({}));
     if(!r.ok){ if(cuerpo.type!=="hb") toast(j.error||"No se pudo enviar la orden","error"); return null; }
@@ -682,7 +682,7 @@ async function enviarNube(cuerpo){
 const _t = {cmd:0, hb:0, arm:0, grip:0};
 function pubNube(n,m){
   const ahora=Date.now();
-  if(n==="hb"){ if(ahora-_t.hb<2000 || ausente()) return; _t.hb=ahora; enviarNube({type:"hb"}); return; }
+  if(n==="hb"){ if(!ROBOT || ahora-_t.hb<2000 || ausente()) return; _t.hb=ahora; enviarNube({type:"hb"}); return; }
   if(n==="estop"){ enviarNube({type:"estop"}).then(sondearNube); return; }
   if(SOLO_LECTURA || estado.estopNube) return;
   if(n==="cmdVel"){                                   // máximo 5 órdenes por segundo; el alto se envía siempre
@@ -700,7 +700,7 @@ document.addEventListener("visibilitychange",()=>{ _oculto = document.hidden ? D
 const ausente = () => document.hidden && Date.now()-_oculto>60000;   // pestaña oculta más de 1 min = el operador no está
 
 function aplicarUsuario(){
-  $("uNombre").textContent = USER.name;
+  $("uNombre").textContent = USER.name + (USER.empresa ? " · " + USER.empresa : "");
   $("uRol").textContent = ROL[USER.role] || USER.role;
   $("uRol").dataset.rol = USER.role;
   SOLO_LECTURA = !USER.canControl;
@@ -709,11 +709,12 @@ function aplicarUsuario(){
     $("fsMando").disabled = $("fsPinza").disabled = $("fsBrazo").disabled = true;
     $("soloLectura").hidden = false;
   }
-  if(USER.role==="admin"){ $("admin").hidden=false; cargarAdmin(); }
+  if(USER.role==="admin" || USER.superadmin){ $("admin").hidden=false; cargarAdmin(); }
 }
 $("btnSalir") && ($("btnSalir").onclick = async ()=>{
-  try{ await fetch("/api/auth",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"logout"})}); }catch(e){}
-  location.href="/login";
+  let url="/login";
+  try{ const r=await fetch("/api/auth",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"logout"})}); url=(await r.json()).logoutUrl||url; }catch(e){}
+  location.href=url;
 });
 
 /* ---- Sondeo de telemetría ---- */
@@ -722,7 +723,7 @@ async function sondearNube(){
   if(_sondeando || ausente()) return;
   _sondeando = true;
   try{
-    const r = await fetch("/api/telemetry"+(_primera?"?history=3600":""), {credentials:"same-origin", cache:"no-store"});
+    const r = await fetch("/api/telemetry?robot="+(ROBOT||"")+(_primera?"&history=3600":""), {credentials:"same-origin", cache:"no-store"});
     if(r.status===401){ login(); return; }
     const j = await r.json();
     procesarNube(j);
@@ -733,6 +734,7 @@ async function sondearNube(){
 
 function procesarNube(j){
   const L = j.last, ahora = Date.now();
+  if(!j.robot){ conexion(false, USER&&USER.role==="admin" ? "Registra tu robot en Administración (abajo)" : "Tu empresa aún no tiene robots"); return; }
   conexion(!!j.online, j.online ? "Robot en línea" : (L ? "Sin señal del robot" : "Esperando al robot"));
   if(_primera && j.history){
     HIST.length=0;
@@ -792,45 +794,68 @@ function renderEventos(lista){
   }).join("");
 }
 
-/* ---- Administración (solo administrador) ---- */
+/* ---- Administración (administrador de la empresa; solicitudes de demo solo para el equipo Pyxis-Bot) ---- */
+const api = (ruta, cuerpo) => fetch(ruta, cuerpo===undefined ? {credentials:"same-origin"} :
+  {method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify(cuerpo)})
+  .then(r=>r.json().catch(()=>({})).then(j=>(r.ok||toast(j.error||"No se pudo completar","error"), j)));
+async function cargarRobots(){
+  const j = await api("/api/robots"); const lista = j.robots||[];
+  const sel=$("selRobot");
+  sel.innerHTML = lista.map(r=>`<option value="${r.id}">${esc(r.nombre)}</option>`).join("");
+  if(!lista.some(r=>r.id===ROBOT)) ROBOT = lista.length ? lista[0].id : null;
+  sel.value = ROBOT||""; sel.hidden = lista.length<2;
+  if($("tRobots")) $("tRobots").innerHTML = lista.length ? "<thead><tr><th>Robot</th><th>Último dato</th><th></th></tr></thead><tbody>"+
+    lista.map(r=>`<tr><td><b>${esc(r.nombre)}</b><small>ID ${r.id}</small></td><td>${r.visto?fhora(r.visto):"—"}</td><td><button type="button" class="btn-sec peq" data-borrar="${r.id}">Eliminar</button></td></tr>`).join("")+"</tbody>"
+    : "<tbody><tr><td>Aún no hay robots. Registra uno y copia su clave en la Jetson (CLOUD_KEY).</td></tr></tbody>";
+}
+$("selRobot").onchange = e=>{ ROBOT=Number(e.target.value); _primera=true; estado.armSync=estado.pinzaSync=false; sondearNube(); };
 async function cargarAdmin(){
-  try{
-    const [u,l] = await Promise.all([fetch("/api/users",{credentials:"same-origin"}).then(r=>r.json()), fetch("/api/lead",{credentials:"same-origin"}).then(r=>r.json())]);
+  if(USER.role==="admin"){
+    const u = await api("/api/users");
     if(u.ok){
-      $("tUsuarios").innerHTML = "<thead><tr><th>Usuario</th><th>Empresa</th><th>Último acceso</th><th>Rol</th><th></th></tr></thead><tbody>"+
-        u.users.map(x=>`<tr data-e="${esc(x.email)}"><td><b>${esc(x.name)}</b><small>${esc(x.email)}</small></td><td>${esc(x.company||"—")}</td><td>${x.lastLogin?fhora(x.lastLogin):"—"}</td>
-        <td><select aria-label="Rol de ${esc(x.name)}">${Object.keys(ROL).map(r=>`<option value="${r}"${r===x.role?" selected":""}>${ROL[r]}</option>`).join("")}</select></td>
-        <td><button type="button" class="btn-sec peq" data-pw>Nueva contraseña</button></td></tr>`).join("")+"</tbody>";
+      $("tUsuarios").innerHTML = "<thead><tr><th>Usuario</th><th>Último acceso</th><th>Rol</th></tr></thead><tbody>"+
+        u.users.map(x=>`<tr data-s="${esc(x.sub)}"><td><b>${esc(x.name)}</b><small>${esc(x.email)}</small></td><td>${x.lastLogin?fhora(x.lastLogin):"—"}</td>
+        <td><select aria-label="Rol de ${esc(x.name)}">${Object.keys(ROL).map(r=>`<option value="${r}"${r===x.role?" selected":""}>${ROL[r]}</option>`).join("")}</select></td></tr>`).join("")+
+        u.invitaciones.map(x=>`<tr><td><b>${esc(x.email)}</b><small>Invitación pendiente</small></td><td>—</td><td>${ROL[x.role]} <button type="button" class="btn-sec peq" data-cancelar="${esc(x.email)}">Cancelar</button></td></tr>`).join("")+"</tbody>";
       $("lAudit").innerHTML = u.audit.map(a=>`<li><b>${esc(a.accion)}</b> · ${esc(a.quien)} <small>${esc(a.detalle)} · ${fhora(a.t)}</small></li>`).join("") || "<li>Sin actividad registrada</li>";
     }
-    if(l.ok){
-      $("tLeads").innerHTML = l.leads.length ? "<thead><tr><th>Fecha</th><th>Contacto</th><th>Sector</th><th>Mensaje</th></tr></thead><tbody>"+
-        l.leads.map(x=>`<tr><td>${fhora(x.t)}</td><td><b>${esc(x.name)}</b><small>${esc(x.company)} · <a href="mailto:${esc(x.email)}">${esc(x.email)}</a></small></td><td>${esc(x.sector)}</td><td>${esc(x.message)}</td></tr>`).join("")+"</tbody>" : "<tbody><tr><td>Aún no hay solicitudes de demo.</td></tr></tbody>";
-    }
-  }catch(e){ toast("No se pudo cargar la administración","error"); }
+  }else ["tRobots","fRobot","tUsuarios","fInvitar","lAudit"].forEach(id=>$(id).closest(".admin-g > div").hidden=true);
+  if(USER.superadmin){
+    const l = await api("/api/lead");
+    $("bLeads").hidden = false;
+    $("tLeads").innerHTML = l.leads && l.leads.length ? "<thead><tr><th>Fecha</th><th>Contacto</th><th>Sector</th><th>Mensaje</th></tr></thead><tbody>"+
+      l.leads.map(x=>`<tr><td>${fhora(x.t)}</td><td><b>${esc(x.name)}</b><small>${esc(x.company)} · <a href="mailto:${esc(x.email)}">${esc(x.email)}</a></small></td><td>${esc(x.sector)}</td><td>${esc(x.message)}</td></tr>`).join("")+"</tbody>" : "<tbody><tr><td>Aún no hay solicitudes de demo.</td></tr></tbody>";
+  }
 }
 $("tUsuarios").addEventListener("change", async e=>{
   const sel=e.target.closest("select"); if(!sel) return;
-  const email=sel.closest("tr").dataset.e;
-  const r=await fetch("/api/users",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,role:sel.value})});
-  const j=await r.json().catch(()=>({}));
-  if(!r.ok){ toast(j.error||"No se pudo cambiar el rol","error"); }
-  else toast("Rol actualizado","ok");
+  const j = await api("/api/users", {sub:sel.closest("tr").dataset.s, role:sel.value});
+  if(j.ok) toast("Rol actualizado","ok");
   cargarAdmin();
 });
 $("tUsuarios").addEventListener("click", async e=>{
-  const b=e.target.closest("[data-pw]"); if(!b) return;
-  const td=b.parentElement;
-  td.innerHTML='<input type="password" class="peq-in" autocomplete="new-password" placeholder="Mín. 8, letras y números" aria-label="Nueva contraseña"> <button type="button" class="btn-sec peq" data-ok>Guardar</button>';
-  td.querySelector("input").focus();
+  const b=e.target.closest("[data-cancelar]"); if(!b) return;
+  await api("/api/users", {cancelar:b.dataset.cancelar}); cargarAdmin();
 });
-$("tUsuarios").addEventListener("click", async e=>{
-  const b=e.target.closest("[data-ok]"); if(!b) return;
-  const tr=b.closest("tr"), pw=tr.querySelector("input").value;
-  const r=await fetch("/api/users",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:tr.dataset.e,password:pw})});
-  const j=await r.json().catch(()=>({}));
-  toast(r.ok ? "Contraseña restablecida. Sus sesiones abiertas se cerraron." : (j.error||"No se pudo restablecer"), r.ok?"ok":"error");
-  cargarAdmin();
+$("fInvitar").addEventListener("submit", async e=>{
+  e.preventDefault(); const f=e.target;
+  const j = await api("/api/users", {invitar:f.email.value, role:f.role.value});
+  if(j.ok){ toast("Invitación creada: que entre con Auth0 usando ese correo","ok"); f.reset(); cargarAdmin(); }
+});
+$("fRobot").addEventListener("submit", async e=>{
+  e.preventDefault(); const f=e.target;
+  const j = await api("/api/robots", {nombre:f.nombre.value});
+  if(j.ok){
+    const p=$("claveNueva"); p.hidden=false;
+    p.textContent = `Clave de "${j.robot.nombre}" (cópiala ahora, no se vuelve a mostrar): ${j.robot.clave}`;
+    f.reset(); await cargarRobots(); cargarAdmin();
+  }
+});
+$("tRobots").addEventListener("click", async e=>{
+  const b=e.target.closest("[data-borrar]"); if(!b) return;
+  if(!confirm("¿Eliminar este robot y todos sus datos? Su clave dejará de funcionar.")) return;
+  const j = await api("/api/robots", {borrar:Number(b.dataset.borrar)});
+  if(j.ok){ toast("Robot eliminado","ok"); await cargarRobots(); _primera=true; sondearNube(); }
 });
 
 /* ========= ARRANQUE ========= */
@@ -843,6 +868,8 @@ async function arrancar(){
       const j = await r.json().catch(()=>({}));
       if(!r.ok){ toast(j.error||"El servidor no respondió correctamente","error"); conexion(false,"Servidor sin configurar"); return; }
       USER = j.user;
+      if(USER.empresaId==null){ location.replace("/login"); return; }   // falta registrar la empresa
+      await cargarRobots();
     }catch(e){ toast("Sin conexión con el servidor","error"); }
     if(USER) aplicarUsuario();
     $("usuario").hidden=false;
