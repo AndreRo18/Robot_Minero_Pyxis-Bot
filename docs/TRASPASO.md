@@ -6,7 +6,7 @@ Objetivo: que GitHub, Vercel, Neon, Auth0 y Resend queden a nombre de la empresa
 
 | Servicio | Qué hay | Cómo se traspasa |
 |---|---|---|
-| GitHub | Repositorio `AndreRo18/Robot_Minero_Pyxis-Bot` | Transferir a una organización |
+| GitHub | Código en `SuperInkaWeb/pyxisbot` (repositorio de la empresa) | Ya está en la empresa: solo conectar Vercel |
 | Vercel | Proyecto `robot_minero_pyxis-bot-dashboard` (Root Directory `plataforma`) | Transferir a un equipo (team) |
 | Neon | Proyecto "Robot Minero" | Transferir a una organización |
 | Auth0 | Tenant `dev-qk3egsfuac48s21x`, aplicación "Pyxis-Bot Dashboard" | Invitar a la empresa como administradora y retirarse |
@@ -18,16 +18,15 @@ Objetivo: que GitHub, Vercel, Neon, Auth0 y Resend queden a nombre de la empresa
 3. Elegir una franja de baja actividad. Ningún paso apaga el servicio, pero conviene no tener robots operando.
 
 ## Paso 1 · GitHub
-1. Con el correo corporativo: github.com → **+** → **New organization** (plan gratuito). Invitar a Andrea como *Owner* temporal.
-2. En el repositorio: **Settings → General → Danger Zone → Transfer ownership** → elegir la organización → escribir el nombre del repositorio para confirmar.
-3. GitHub redirige las direcciones antiguas. En la Jetson, actualizar el origen:
-   `git remote set-url origin https://github.com/ORGANIZACION/Robot_Minero_Pyxis-Bot.git`
-4. En la organización: exigir verificación en 2 pasos (**Settings → Authentication security**) y proteger la rama `main` (**Settings → Branches → Add rule**: requerir *pull request* antes de unir cambios).
+El código vive en el repositorio de la empresa **`SuperInkaWeb/pyxisbot`**. El repositorio personal anterior queda solo como respaldo.
+1. En la organización: exigir verificación en 2 pasos (**Settings → Authentication security**) y proteger la rama `main` (**Settings → Branches → Add rule**: exigir *pull request* antes de unir cambios).
+2. En cada Jetson, apuntar al repositorio de la empresa:
+   `git clone https://github.com/SuperInkaWeb/pyxisbot.git ~/pyxisbot`
 
 ## Paso 2 · Vercel
 1. Con el correo corporativo: crear un **Team**. El uso comercial exige el plan **Pro**. Invitar a Andrea como miembro.
 2. En el proyecto: **Settings → General → Transfer Project** → elegir el equipo de la empresa. Se trasladan despliegues, dominios y variables de entorno, sin tiempo fuera de servicio.
-3. En el proyecto ya traspasado: **Settings → Git → Connect Git Repository** → instalar la app de Vercel en la organización de GitHub → conectar `ORGANIZACION/Robot_Minero_Pyxis-Bot`.
+3. En el proyecto ya traspasado: **Settings → Git → Connect Git Repository** → instalar la app de Vercel en la organización `SuperInkaWeb` → conectar `SuperInkaWeb/pyxisbot`.
 4. Confirmar **Settings → Build and Deployment → Root Directory = `plataforma`**.
 
 ## Paso 3 · Neon

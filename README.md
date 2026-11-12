@@ -24,6 +24,11 @@ Navegador ── HTTPS ── plataforma (Vercel + Auth0 + Neon) ── Internet
 - Centro de control: https://robotmineropyxis-bot-dashboard.vercel.app · configuración y pruebas en [`plataforma/README.md`](plataforma/README.md).
 - Traspaso a la cuenta de la empresa: [`docs/TRASPASO.md`](docs/TRASPASO.md) · versiones: [`CHANGELOG.md`](CHANGELOG.md).
 
+## Obtener el código
+```bash
+git clone https://github.com/SuperInkaWeb/pyxisbot.git
+```
+
 ## Robot · ESP32 (VS Code + PlatformIO)
 1. Abre `robot/esp32/` en VS Code con PlatformIO, luego Build y Upload (las librerías están en `platformio.ini`).
 2. Calibra `CO_PPM_POR_CUENTA`. Prueba los encoders empujando el robot hacia adelante: si la cuenta baja, cambia `ENC_SIGNO_IZQ` o `ENC_SIGNO_DER` a -1.
@@ -41,7 +46,7 @@ Terminal 2:
 ```bash
 source /opt/ros/humble/setup.bash
 export CLOUD_URL=https://robotmineropyxis-bot-dashboard.vercel.app CLOUD_KEY=pyx_...   # clave del robot (panel → Administración → Robots)
-ros2 launch ~/Robot_Minero_Pyxis-Bot/robot/jetson/robot_minero.launch.py
+ros2 launch ~/pyxisbot/robot/jetson/robot_minero.launch.py
 ```
 En el launch, `/dev/video0` es la cámara RGB. En `flir_lepton_node.py`, el parámetro `modelo` es 3 para Lepton 3.x y 2 para Lepton 2.x.
 
