@@ -22,7 +22,7 @@ Navegador ── HTTPS ── plataforma (Vercel + Auth0 + Neon) ── Internet
 ```
 
 - Centro de control: https://robotmineropyxis-bot-dashboard.vercel.app · configuración y pruebas en [`plataforma/README.md`](plataforma/README.md).
-- Traspaso a la cuenta de la empresa: [`docs/TRASPASO.md`](docs/TRASPASO.md) · versiones: [`CHANGELOG.md`](CHANGELOG.md).
+- Versiones: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Obtener el código
 ```bash
