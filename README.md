@@ -24,10 +24,6 @@ Navegador ── HTTPS ── plataforma (Vercel + Auth0 + Neon) ── Internet
 - Centro de control: https://robotmineropyxis-bot-dashboard.vercel.app · configuración y pruebas en [`plataforma/README.md`](plataforma/README.md).
 - Versiones: [`CHANGELOG.md`](CHANGELOG.md).
 
-## Obtener el código
-```bash
-git clone https://github.com/SuperInkaWeb/pyxisbot.git
-```
 
 ## Robot · ESP32 (VS Code + PlatformIO)
 1. Abre `robot/esp32/` en VS Code con PlatformIO, luego Build y Upload (las librerías están en `platformio.ini`).
