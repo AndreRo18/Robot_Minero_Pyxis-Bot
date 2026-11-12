@@ -10,6 +10,7 @@ Se publica en Vercel con **Root Directory = `plataforma`** (los archivos estáti
 | `backend/` | Servidor: `db.js` (Neon + tablas), `auth.js` (sesión y permisos por empresa), `control.js` (robots y órdenes), `safety.js` (umbrales de gases), `correo.js` (Resend), `http.js` |
 | `api/` | Endpoints: `auth`, `users`, `robots`, `telemetry`, `command`, `lead`, `health` |
 | `pruebas/` | `test-api.mjs` + `pg-local.mjs` (pruebas), `simulador-robot.mjs` |
+| `scripts/` | `cambiar-dominio.mjs`: actualiza el dominio público en el frontend (`node scripts/cambiar-dominio.mjs https://www.tudominio.com`) |
 
 ## Cómo funciona
 - **Auth0** gestiona el inicio de sesión; aquí no se guardan contraseñas.

@@ -7,7 +7,8 @@ plataforma/            Centro de control web (se publica en Vercel; Root Directo
 ├── frontend/          Lo que ve el navegador: páginas HTML, estilos y scripts (assets/)
 ├── backend/           Lógica del servidor: base de datos Neon, sesión Auth0, permisos, robots, correo Resend
 ├── api/               Endpoints HTTP (Vercel exige este nombre de carpeta); usan backend/
-└── pruebas/           Pruebas automáticas y simulador del robot
+├── pruebas/           Pruebas automáticas y simulador del robot
+└── scripts/           Utilidades (cambio de dominio)
 robot/
 ├── esp32/             Firmware del ESP32 (PlatformIO): motores, brazo, pinza y sensores
 └── jetson/            Nodos ROS 2 de la Jetson: puente al ESP32, cámara térmica y pasarela a la nube
@@ -21,6 +22,7 @@ Navegador ── HTTPS ── plataforma (Vercel + Auth0 + Neon) ── Internet
 ```
 
 - Centro de control: https://robotmineropyxis-bot-dashboard.vercel.app · configuración y pruebas en [`plataforma/README.md`](plataforma/README.md).
+- Traspaso a la cuenta de la empresa: [`docs/TRASPASO.md`](docs/TRASPASO.md) · versiones: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Robot · ESP32 (VS Code + PlatformIO)
 1. Abre `robot/esp32/` en VS Code con PlatformIO, luego Build y Upload (las librerías están en `platformio.ini`).

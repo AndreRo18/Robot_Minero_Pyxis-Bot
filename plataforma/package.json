@@ -1,9 +1,11 @@
 {
-  "name": "robot-minero-web",
-  "version": "2.0.0",
+  "name": "pyxis-bot-plataforma",
+  "version": "2.1.0",
   "private": true,
-  "description": "Landing, dashboard y API del robot minero Pyxis-Bot (Vercel + Auth0 + Neon)",
-  "engines": { "node": ">=20" },
+  "description": "Centro de control Pyxis-Bot: página comercial, panel multiempresa y API (Vercel + Auth0 + Neon + Resend)",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1"
   },
@@ -11,5 +13,6 @@
     "dev": "node dev-server.mjs",
     "simulador": "node pruebas/simulador-robot.mjs",
     "test": "node pruebas/test-api.mjs"
-  }
+  },
+  "license": "UNLICENSED"
 }
